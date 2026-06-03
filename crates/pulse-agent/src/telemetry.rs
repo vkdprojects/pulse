@@ -114,9 +114,17 @@ async fn read_cgroup_value(path: &str) -> u64 {
     fs::read_to_string(path).await.ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
 
+use std::collections::HashMap as StdHashMap;
+use std::sync::Mutex as StdMutex;
+
+type CounterMap = StdMutex<StdHashMap<String, (u64, u64, u64, u64)>>;
+
+static NET_PREV: std::sync::LazyLock<CounterMap> = std::sync::LazyLock::new(|| StdMutex::new(StdHashMap::new()));
+
 pub async fn collect_net() -> Result<Vec<NetMetrics>> {
     let content = fs::read_to_string("/proc/net/dev").await?;
     let mut metrics = Vec::new();
+    let mut prev = NET_PREV.lock().unwrap();
 
     for line in content.lines().skip(2) {
         let line = line.trim();
@@ -134,13 +142,29 @@ pub async fn collect_net() -> Result<Vec<NetMetrics>> {
             continue;
         }
 
+        let (rx_bytes, rx_packets, tx_bytes, tx_packets) = (vals[0], vals[1], vals[8], vals[9]);
+
+        // Calculate delta from previous reading
+        let (drx, drxp, dtx, dtxp) = if let Some(&(prx, prxp, ptx, ptxp)) = prev.get(&iface) {
+            (
+                rx_bytes.saturating_sub(prx),
+                rx_packets.saturating_sub(prxp),
+                tx_bytes.saturating_sub(ptx),
+                tx_packets.saturating_sub(ptxp),
+            )
+        } else {
+            (0, 0, 0, 0) // First reading: report 0
+        };
+
+        prev.insert(iface.clone(), (rx_bytes, rx_packets, tx_bytes, tx_packets));
+
         metrics.push(NetMetrics {
             interface: iface,
-            rx_bytes_sec: vals[0],
-            rx_packets_sec: vals[1],
+            rx_bytes_sec: drx,
+            rx_packets_sec: drxp,
             rx_errors: vals[2],
-            tx_bytes_sec: vals[8],
-            tx_packets_sec: vals[9],
+            tx_bytes_sec: dtx,
+            tx_packets_sec: dtxp,
             tx_errors: vals[10],
         });
     }
@@ -209,9 +233,12 @@ pub async fn collect_system() -> Result<SystemMetrics> {
     Ok(SystemMetrics { uptime_secs, processes_total: procs_total, processes_running: procs_running })
 }
 
+static DISK_PREV: std::sync::LazyLock<CounterMap> = std::sync::LazyLock::new(|| StdMutex::new(StdHashMap::new()));
+
 pub async fn collect_disk_io() -> Result<Vec<DiskIoMetrics>> {
     let content = fs::read_to_string("/proc/diskstats").await?;
     let mut metrics = Vec::new();
+    let mut prev = DISK_PREV.lock().unwrap();
 
     for line in content.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -219,7 +246,6 @@ pub async fn collect_disk_io() -> Result<Vec<DiskIoMetrics>> {
             continue;
         }
         let device = parts[2];
-        // Skip partitions (only whole disks: sda, vda, nvme0n1)
         if device.chars().last().is_some_and(|c| c.is_ascii_digit())
             && !device.contains("nvme")
             && !device.starts_with("dm-")
@@ -235,12 +261,28 @@ pub async fn collect_disk_io() -> Result<Vec<DiskIoMetrics>> {
         let write_ops: u64 = parts[7].parse().unwrap_or(0);
         let write_sectors: u64 = parts[9].parse().unwrap_or(0);
 
+        let rb = read_sectors * 512;
+        let wb = write_sectors * 512;
+
+        let (drb, dwb, dro, dwo) = if let Some(&(prb, pwb, pro, pwo)) = prev.get(device) {
+            (
+                rb.saturating_sub(prb),
+                wb.saturating_sub(pwb),
+                read_ops.saturating_sub(pro),
+                write_ops.saturating_sub(pwo),
+            )
+        } else {
+            (0, 0, 0, 0)
+        };
+
+        prev.insert(device.to_string(), (rb, wb, read_ops, write_ops));
+
         metrics.push(DiskIoMetrics {
             device: device.into(),
-            read_bytes: read_sectors * 512,
-            write_bytes: write_sectors * 512,
-            read_ops,
-            write_ops,
+            read_bytes: drb,
+            write_bytes: dwb,
+            read_ops: dro,
+            write_ops: dwo,
         });
     }
     Ok(metrics)
