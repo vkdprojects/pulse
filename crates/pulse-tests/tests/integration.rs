@@ -73,6 +73,8 @@ async fn test_stream_metrics_plain() {
             disk_io: vec![],
             top_processes: vec![],
             temperatures: vec![],
+            gpus: vec![],
+            disk_health: vec![],
         },
         MetricsPayload {
             timestamp_ms: 11000,
@@ -86,6 +88,8 @@ async fn test_stream_metrics_plain() {
             disk_io: vec![],
             top_processes: vec![],
             temperatures: vec![],
+            gpus: vec![],
+            disk_health: vec![],
         },
     ];
 

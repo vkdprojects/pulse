@@ -300,6 +300,85 @@ pub async fn collect_temperatures() -> Result<Vec<TemperatureMetrics>> {
     Ok(temps)
 }
 
+pub async fn collect_gpus() -> Result<Vec<pulse_proto::pb::GpuMetrics>> {
+    // Try nvidia-smi
+    let output = tokio::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .await;
+
+    let Ok(output) = output else { return Ok(Vec::new()) };
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut gpus = Vec::new();
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        gpus.push(pulse_proto::pb::GpuMetrics {
+            index: parts[0].parse().unwrap_or(0),
+            name: parts[1].into(),
+            utilization_pct: parts[2].parse().unwrap_or(0),
+            mem_used: parts[3].parse::<u64>().unwrap_or(0) * 1_048_576,
+            mem_total: parts[4].parse::<u64>().unwrap_or(0) * 1_048_576,
+            temp_c: parts[5].parse().unwrap_or(0),
+            power_watts: parts[6].parse::<f32>().unwrap_or(0.0) as u32,
+        });
+    }
+    Ok(gpus)
+}
+
+pub async fn collect_disk_health() -> Result<Vec<pulse_proto::pb::DiskHealth>> {
+    let mut health = Vec::new();
+    let block_dir = Path::new("/sys/block");
+    if !block_dir.exists() {
+        return Ok(health);
+    }
+
+    let mut entries = fs::read_dir(block_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("dm-") {
+            continue;
+        }
+
+        let dev_path = entry.path().join("device");
+        if !dev_path.exists() {
+            continue;
+        }
+
+        let model = fs::read_to_string(dev_path.join("model")).await.unwrap_or_default().trim().to_string();
+
+        // Try to read SMART-like attributes from sysfs
+        let temp_path = entry.path().join("device/hwmon");
+        let temp_c = if temp_path.exists() { read_hwmon_temp(&temp_path).await } else { 0 };
+
+        health.push(pulse_proto::pb::DiskHealth {
+            device: name,
+            model,
+            temp_c,
+            power_on_hours: 0, // needs smartctl for this
+            healthy: true,     // basic: exists = healthy
+        });
+    }
+    Ok(health)
+}
+
+async fn read_hwmon_temp(hwmon_dir: &Path) -> u32 {
+    let Ok(mut entries) = fs::read_dir(hwmon_dir).await else { return 0 };
+    let Some(Ok(entry)) = entries.next_entry().await.transpose() else { return 0 };
+    let temp_file = entry.path().join("temp1_input");
+    fs::read_to_string(&temp_file).await.ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0) / 1000
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
