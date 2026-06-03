@@ -3,21 +3,40 @@ default:
 
 # --- Development ---
 
-# Run master in dev mode (insecure, localhost)
+# Start dev environment (DB + certs)
+dev-up:
+    docker compose -f docker-compose.dev.yml up -d
+    @echo "Waiting for TimescaleDB..."
+    @sleep 3
+    @just gen-certs
+    @echo ""
+    @echo "✓ Dev environment ready!"
+    @echo "  DB: postgres://pulse:pulse@localhost:5432/pulse"
+    @echo "  Certs: .certs/"
+    @echo ""
+    @echo "Run in separate terminals:"
+    @echo "  just dev-master"
+    @echo "  just dev-agent"
+
+# Stop dev environment
+dev-down:
+    docker compose -f docker-compose.dev.yml down -v
+
+# Run master connected to local DB
+dev-master:
+    RUST_LOG=info DATABASE_URL=postgres://pulse:pulse@localhost:5432/pulse PULSE_TLS_DIR=.certs PULSE_LISTEN="[::1]:50051" cargo run -p pulse-master
+
+# Run agent connected to local master
+dev-agent:
+    RUST_LOG=info cargo run -p pulse-agent -- .certs/agent.toml
+
+# Run master insecure (no TLS, no DB)
 run-master:
     RUST_LOG=info cargo run -p pulse-master
 
-# Run master with mTLS
-run-master-tls:
-    RUST_LOG=info PULSE_TLS_DIR=.certs cargo run -p pulse-master
-
-# Run agent in dev mode (connects to localhost)
+# Run agent insecure
 run-agent:
     RUST_LOG=info cargo run -p pulse-agent
-
-# Run agent with mTLS
-run-agent-tls:
-    RUST_LOG=info cargo run -p pulse-agent -- .certs/agent.toml
 
 # Generate dev certificates (CA + server + client)
 gen-certs:

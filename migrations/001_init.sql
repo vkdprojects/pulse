@@ -55,17 +55,32 @@ ALTER TABLE metrics SET (
     timescaledb.compress,
     timescaledb.compress_segmentby = 'agent_id'
 );
-SELECT add_compression_policy('metrics', INTERVAL '7 days');
 
 ALTER TABLE net_metrics SET (
     timescaledb.compress,
     timescaledb.compress_segmentby = 'agent_id,interface'
 );
-SELECT add_compression_policy('net_metrics', INTERVAL '7 days');
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('net_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 -- Retention: drop data older than 90 days
-SELECT add_retention_policy('metrics', INTERVAL '90 days');
-SELECT add_retention_policy('net_metrics', INTERVAL '90 days');
+DO $$ BEGIN
+  PERFORM add_retention_policy('metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('net_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_metrics_agent_time ON metrics (agent_id, time DESC);

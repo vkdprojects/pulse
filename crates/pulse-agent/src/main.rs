@@ -160,8 +160,10 @@ async fn build_channel(config: &Config) -> Result<Channel> {
         let cert = tokio::fs::read_to_string(tls.client_cert.as_ref().unwrap()).await?;
         let key = tokio::fs::read_to_string(tls.client_key.as_ref().unwrap()).await?;
 
-        let tls_config =
-            ClientTlsConfig::new().ca_certificate(Certificate::from_pem(&ca)).identity(Identity::from_pem(&cert, &key));
+        let tls_config = ClientTlsConfig::new()
+            .domain_name(tls.domain_name.as_deref().unwrap_or("localhost"))
+            .ca_certificate(Certificate::from_pem(&ca))
+            .identity(Identity::from_pem(&cert, &key));
 
         Ok(endpoint.tls_config(tls_config)?.connect().await?)
     } else {

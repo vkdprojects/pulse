@@ -22,6 +22,7 @@ pub struct TlsConfig {
     pub ca_cert: Option<String>,
     pub client_cert: Option<String>,
     pub client_key: Option<String>,
+    pub domain_name: Option<String>,
 }
 
 impl Config {
