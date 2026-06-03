@@ -1,0 +1,10 @@
+[package]
+name = "pulse-master"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pulse-proto = { path = "../pulse-proto" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tonic = { workspace = true, features = ["transport", "tls-ring"] }
+anyhow = { workspace = true }

@@ -1,0 +1,148 @@
+syntax = "proto3";
+package vixpi.pulse.v1;
+
+service PulseAgent {
+  rpc StreamMetrics(stream MetricsPayload) returns (MetricsAck);
+  rpc CommandChannel(stream CommandResponse) returns (stream CommandRequest);
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+}
+
+// --- Metrics ---
+
+message MetricsPayload {
+  fixed64 timestamp_ms = 1;
+  string agent_id = 2;
+  CpuMetrics cpu = 3;
+  MemoryMetrics memory = 4;
+  repeated DiskMetrics disks = 5;
+  repeated NetMetrics net = 6;
+  SystemMetrics system = 7;
+}
+
+message CpuMetrics {
+  repeated uint32 usage_per_core_bp = 1;
+  uint32 usage_total_bp = 2;
+  uint32 load_avg_1m_cp = 3;
+  uint32 load_avg_5m_cp = 4;
+  uint32 load_avg_15m_cp = 5;
+}
+
+message MemoryMetrics {
+  uint64 total_bytes = 1;
+  uint64 used_bytes = 2;
+  uint64 available_bytes = 3;
+  uint64 swap_total_bytes = 4;
+  uint64 swap_used_bytes = 5;
+  uint64 cgroup_limit_bytes = 6;
+  uint64 cgroup_usage_bytes = 7;
+}
+
+message DiskMetrics {
+  string mount_point = 1;
+  uint64 total_bytes = 2;
+  uint64 used_bytes = 3;
+  uint64 read_bytes_sec = 4;
+  uint64 write_bytes_sec = 5;
+}
+
+message NetMetrics {
+  string interface = 1;
+  uint64 rx_bytes_sec = 2;
+  uint64 tx_bytes_sec = 3;
+  uint64 rx_packets_sec = 4;
+  uint64 tx_packets_sec = 5;
+  uint64 rx_errors = 6;
+  uint64 tx_errors = 7;
+}
+
+message SystemMetrics {
+  uint64 uptime_secs = 1;
+  uint32 processes_total = 2;
+  uint32 processes_running = 3;
+}
+
+message MetricsAck {
+  bool ok = 1;
+  uint32 next_interval_ms = 2;
+}
+
+// --- Commands ---
+
+message CommandRequest {
+  string request_id = 1;
+  oneof command {
+    ExecCommand exec = 2;
+    PackageCommand package = 3;
+    FileCommand file = 4;
+  }
+  uint32 timeout_secs = 5;
+}
+
+message ExecCommand {
+  string program = 1;
+  repeated string args = 2;
+  map<string, string> env = 3;
+  string working_dir = 4;
+}
+
+message PackageCommand {
+  enum Action {
+    INSTALL = 0;
+    REMOVE = 1;
+    UPDATE = 2;
+  }
+  Action action = 1;
+  repeated string packages = 2;
+}
+
+message FileCommand {
+  enum Action {
+    READ = 0;
+    WRITE = 1;
+    APPEND = 2;
+  }
+  Action action = 1;
+  string path = 2;
+  bytes content = 3;
+  uint64 offset = 4;
+  uint64 limit = 5;
+}
+
+message CommandResponse {
+  string request_id = 1;
+  oneof payload {
+    OutputChunk output = 2;
+    CommandResult result = 3;
+  }
+}
+
+message OutputChunk {
+  enum Stream {
+    STDOUT = 0;
+    STDERR = 1;
+  }
+  Stream stream = 1;
+  bytes data = 2;
+}
+
+message CommandResult {
+  int32 exit_code = 1;
+  bool timed_out = 2;
+  string error = 3;
+}
+
+// --- Registration ---
+
+message RegisterRequest {
+  string hostname = 1;
+  string os = 2;
+  string arch = 3;
+  string agent_version = 4;
+  repeated string labels = 5;
+}
+
+message RegisterResponse {
+  string agent_id = 1;
+  uint32 metrics_interval_ms = 2;
+  bytes ca_cert = 3;
+}
