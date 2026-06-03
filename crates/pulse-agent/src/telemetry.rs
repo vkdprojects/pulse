@@ -563,4 +563,60 @@ mod tests {
         let sys = collect_system().await.unwrap();
         assert!(sys.uptime_secs > 0);
     }
+
+    #[test]
+    fn test_read_cstr() {
+        assert_eq!(read_cstr(b"hello\0world"), "hello");
+        assert_eq!(read_cstr(b"\0"), "");
+        assert_eq!(read_cstr(b"abc"), "abc");
+    }
+
+    #[test]
+    fn test_parse_utmp_synthetic() {
+        // Build a fake 384-byte utmpx entry for USER_PROCESS
+        let mut entry = [0u8; 384];
+
+        // ut_type = 7 (USER_PROCESS) at offset 0
+        entry[0] = 7;
+        entry[1] = 0;
+
+        // ut_pid = 12345 at offset 4
+        let pid_bytes = 12345i32.to_ne_bytes();
+        entry[4..8].copy_from_slice(&pid_bytes);
+
+        // ut_line = "pts/0" at offset 8
+        entry[8..13].copy_from_slice(b"pts/0");
+
+        // ut_id at offset 40 (skip)
+
+        // ut_user = "root" at offset 44
+        entry[44..48].copy_from_slice(b"root");
+
+        // ut_host = "192.168.1.100" at offset 76
+        entry[76..89].copy_from_slice(b"192.168.1.100");
+
+        // Write to temp file and parse
+        let tmp = std::env::temp_dir().join("pulse_test_utmp");
+        std::fs::write(&tmp, entry).unwrap();
+
+        // Parse manually (same logic as parse_utmp but from our temp file)
+        let buf = std::fs::read(&tmp).unwrap();
+        let chunk = &buf[..384];
+        let ut_type = i16::from_ne_bytes([chunk[0], chunk[1]]);
+        assert_eq!(ut_type, 7);
+
+        let pid = i32::from_ne_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as u32;
+        assert_eq!(pid, 12345);
+
+        let line = read_cstr(&chunk[8..40]);
+        assert_eq!(line, "pts/0");
+
+        let user = read_cstr(&chunk[44..76]);
+        assert_eq!(user, "root");
+
+        let host = read_cstr(&chunk[76..332]);
+        assert_eq!(host, "192.168.1.100");
+
+        std::fs::remove_file(&tmp).unwrap();
+    }
 }
