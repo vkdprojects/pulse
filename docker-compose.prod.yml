@@ -1,0 +1,51 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    container_name: pulse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulse
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  gen-certs:
+    build: .
+    container_name: pulse-gen-certs
+    entrypoint: ["/usr/local/bin/pulse-master", "gen-certs", "/certs"]
+    environment:
+      PULSE_EXTRA_SAN: "${PULSE_PUBLIC_HOST},${PULSE_PUBLIC_HOSTNAME}"
+    volumes:
+      - certs:/certs
+
+  master:
+    build: .
+    container_name: pulse-master
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/pulse-master"]
+    environment:
+      PULSE_LISTEN: "0.0.0.0:50051"
+      PULSE_TLS_DIR: /certs
+      DATABASE_URL: "postgres://pulse:${POSTGRES_PASSWORD}@db:5432/pulse"
+      RUST_LOG: info
+    ports:
+      - "50051:50051"
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      gen-certs:
+        condition: service_completed_successfully
+
+volumes:
+  certs:
+  pgdata:
