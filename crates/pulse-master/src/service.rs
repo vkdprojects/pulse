@@ -1,3 +1,4 @@
+use crate::storage::Storage;
 use pulse_proto::pb::{
     CommandRequest, CommandResponse, MetricsAck, MetricsPayload, RegisterRequest, RegisterResponse,
     pulse_agent_server::{PulseAgent, PulseAgentServer},
@@ -14,6 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct PulseService {
     next_id: AtomicU64,
     cmd_tx: Arc<tokio::sync::Mutex<Option<mpsc::Sender<CommandRequest>>>>,
+    storage: Option<Storage>,
 }
 
 impl Default for PulseService {
@@ -24,7 +26,12 @@ impl Default for PulseService {
 
 impl PulseService {
     pub fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), cmd_tx: Arc::new(tokio::sync::Mutex::new(None)) }
+        Self { next_id: AtomicU64::new(1), cmd_tx: Arc::new(tokio::sync::Mutex::new(None)), storage: None }
+    }
+
+    pub fn with_storage(mut self, storage: Storage) -> Self {
+        self.storage = Some(storage);
+        self
     }
 
     pub fn into_server(self) -> PulseAgentServer<Self> {
@@ -43,6 +50,11 @@ impl PulseAgent for PulseService {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let agent_id = format!("agent-{:04x}", id);
         info!(agent_id, hostname = r.hostname, os = r.os, arch = r.arch, version = r.agent_version, "agent registered");
+
+        if let Some(ref db) = self.storage {
+            db.upsert_agent(&agent_id, &r).await.map_err(|e| Status::internal(e.to_string()))?;
+        }
+
         Ok(Response::new(RegisterResponse { agent_id, metrics_interval_ms: 10_000, ca_cert: Vec::new() }))
     }
 
@@ -52,18 +64,20 @@ impl PulseAgent for PulseService {
 
         while let Some(payload) = stream.message().await? {
             count += 1;
-            if let Some(ref cpu) = payload.cpu {
+            if let Some(ref db) = self.storage
+                && let Err(e) = db.insert_metrics(&payload).await
+            {
+                tracing::warn!(error = %e, "failed to persist metrics");
+            }
+            if let Some(ref cpu) = payload.cpu
+                && count % 10 == 1
+            {
                 info!(
                     agent = payload.agent_id,
                     cpu_pct = format!("{:.1}%", cpu.usage_total_bp as f32 / 100.0),
                     count,
                     "metrics"
                 );
-            }
-            if let Some(ref mem) = payload.memory {
-                let used_mb = mem.used_bytes / 1_048_576;
-                let total_mb = mem.total_bytes / 1_048_576;
-                info!(agent = payload.agent_id, used_mb, total_mb, "memory");
             }
         }
 
@@ -78,11 +92,8 @@ impl PulseAgent for PulseService {
         req: Request<Streaming<CommandResponse>>,
     ) -> Result<Response<Self::CommandChannelStream>, Status> {
         let (tx, rx) = mpsc::channel(16);
-
-        // Store sender for external command injection
         *self.cmd_tx.lock().await = Some(tx);
 
-        // Process responses from agent
         let mut response_stream = req.into_inner();
         tokio::spawn(async move {
             while let Ok(Some(resp)) = response_stream.message().await {

@@ -1,5 +1,6 @@
 pub mod ca;
 pub mod service;
+pub mod storage;
 
 use anyhow::Result;
 use ca::CaBundle;
