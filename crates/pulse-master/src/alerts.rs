@@ -136,3 +136,68 @@ fn parse_host_port(url: &str) -> anyhow::Result<(&str, u16)> {
     let (host, port) = host_port.split_once(':').unwrap_or((host_port, "80"));
     Ok((host, port.parse().unwrap_or(80)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pulse_proto::pb::{CpuMetrics, MemoryMetrics, MetricsPayload};
+
+    fn make_payload(cpu_bp: u32, mem_used: u64, mem_total: u64) -> MetricsPayload {
+        MetricsPayload {
+            timestamp_ms: 1000,
+            agent_id: "test-agent".into(),
+            cpu: Some(CpuMetrics { usage_total_bp: cpu_bp, ..Default::default() }),
+            memory: Some(MemoryMetrics { total_bytes: mem_total, used_bytes: mem_used, ..Default::default() }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_alert_does_not_fire_under_threshold() {
+        let engine = AlertEngine::new();
+        // 50% CPU — under default 90%
+        engine.check(&make_payload(5000, 4_000_000_000, 8_000_000_000)).await;
+        engine.check(&make_payload(5000, 4_000_000_000, 8_000_000_000)).await;
+        engine.check(&make_payload(5000, 4_000_000_000, 8_000_000_000)).await;
+        // Counter should stay at 0 because under threshold
+        let state = engine.state.lock().await;
+        assert_eq!(state.get("test-agent").unwrap().cpu_high_count, 0);
+        assert_eq!(state.get("test-agent").unwrap().mem_high_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_alert_state_resets_on_recovery() {
+        let engine = AlertEngine::new();
+        // 2 high readings
+        engine.check(&make_payload(9500, 0, 1)).await;
+        engine.check(&make_payload(9500, 0, 1)).await;
+        // Recovery
+        engine.check(&make_payload(5000, 0, 1)).await;
+        // High again — counter should reset, not fire on 1st
+        engine.check(&make_payload(9500, 0, 1)).await;
+        let state = engine.state.lock().await;
+        assert_eq!(state.get("test-agent").unwrap().cpu_high_count, 1);
+    }
+
+    #[test]
+    fn test_webhook_format_telegram() {
+        let body =
+            format_webhook_body("https://api.telegram.org/bot123/sendMessage", "agent-01", "cpu_high", "CPU at 95%");
+        assert!(body.contains("chat_id"));
+        assert!(body.contains("agent-01"));
+    }
+
+    #[test]
+    fn test_webhook_format_slack() {
+        let body = format_webhook_body("https://hooks.slack.com/services/XXX", "agent-01", "mem_high", "Memory at 92%");
+        assert!(body.contains("content"));
+        assert!(body.contains("agent-01"));
+    }
+
+    #[test]
+    fn test_webhook_format_generic() {
+        let body = format_webhook_body("https://my-service.com/webhook", "agent-01", "cpu_high", "test");
+        assert!(body.contains("timestamp"));
+        assert!(body.contains("agent-01"));
+    }
+}

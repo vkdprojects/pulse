@@ -229,3 +229,122 @@ async fn handle_log_tail(
         })
         .await;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pulse_proto::pb::{CommandRequest, ExecCommand, FileCommand, command_request::Command, file_command::Action};
+
+    #[tokio::test]
+    async fn test_exec_echo() {
+        let (tx, mut rx) = mpsc::channel(32);
+        let req = CommandRequest {
+            request_id: "test-1".into(),
+            command: Some(Command::Exec(ExecCommand {
+                program: "echo".into(),
+                args: vec!["hello".into()],
+                env: Default::default(),
+                working_dir: String::new(),
+            })),
+            timeout_secs: 5,
+        };
+        execute(req, tx).await.unwrap();
+
+        let mut got_output = false;
+        let mut got_result = false;
+        while let Some(resp) = rx.recv().await {
+            match resp.payload.unwrap() {
+                pulse_proto::pb::command_response::Payload::Output(chunk) => {
+                    assert_eq!(String::from_utf8_lossy(&chunk.data).trim(), "hello");
+                    got_output = true;
+                }
+                pulse_proto::pb::command_response::Payload::Result(result) => {
+                    assert_eq!(result.exit_code, 0);
+                    assert!(!result.timed_out);
+                    got_result = true;
+                }
+            }
+        }
+        assert!(got_output);
+        assert!(got_result);
+    }
+
+    #[tokio::test]
+    async fn test_exec_timeout() {
+        let (tx, mut rx) = mpsc::channel(32);
+        let req = CommandRequest {
+            request_id: "test-timeout".into(),
+            command: Some(Command::Exec(ExecCommand {
+                program: "sleep".into(),
+                args: vec!["60".into()],
+                env: Default::default(),
+                working_dir: String::new(),
+            })),
+            timeout_secs: 1,
+        };
+        execute(req, tx).await.unwrap();
+
+        while let Some(resp) = rx.recv().await {
+            if let Some(pulse_proto::pb::command_response::Payload::Result(result)) = resp.payload {
+                assert!(result.timed_out);
+                return;
+            }
+        }
+        panic!("expected timeout result");
+    }
+
+    #[tokio::test]
+    async fn test_file_write_and_read() {
+        let tmp = std::env::temp_dir().join("pulse_test_file.txt");
+        let path = tmp.to_string_lossy().to_string();
+
+        // Write
+        let (tx, mut rx) = mpsc::channel(32);
+        let req = CommandRequest {
+            request_id: "write-1".into(),
+            command: Some(Command::File(FileCommand {
+                action: Action::Write.into(),
+                path: path.clone(),
+                content: b"hello pulse".to_vec(),
+                offset: 0,
+                limit: 0,
+            })),
+            timeout_secs: 5,
+        };
+        execute(req, tx).await.unwrap();
+        let resp = rx.recv().await.unwrap();
+        if let Some(pulse_proto::pb::command_response::Payload::Result(r)) = resp.payload {
+            assert_eq!(r.exit_code, 0);
+        }
+
+        // Read
+        let (tx, mut rx) = mpsc::channel(32);
+        let req = CommandRequest {
+            request_id: "read-1".into(),
+            command: Some(Command::File(FileCommand {
+                action: Action::Read.into(),
+                path: path.clone(),
+                content: vec![],
+                offset: 0,
+                limit: 0,
+            })),
+            timeout_secs: 5,
+        };
+        execute(req, tx).await.unwrap();
+
+        let mut content = Vec::new();
+        while let Some(resp) = rx.recv().await {
+            match resp.payload.unwrap() {
+                pulse_proto::pb::command_response::Payload::Output(chunk) => content.extend(chunk.data),
+                pulse_proto::pb::command_response::Payload::Result(r) => {
+                    assert_eq!(r.exit_code, 0);
+                    break;
+                }
+            }
+        }
+        assert_eq!(String::from_utf8_lossy(&content), "hello pulse");
+
+        // Cleanup
+        let _ = std::fs::remove_file(&tmp);
+    }
+}

@@ -67,3 +67,41 @@ impl CaBundle {
         Ok(IssuedCert { cert_der, cert_pem, key_der, key_pem })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ca_generates_valid_bundle() {
+        let ca = CaBundle::new().unwrap();
+        assert!(ca.ca_cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(!ca.ca_cert_der.is_empty());
+    }
+
+    #[test]
+    fn test_issue_server_cert() {
+        let ca = CaBundle::new().unwrap();
+        let cert = ca.issue_server_cert(&["localhost", "127.0.0.1"]).unwrap();
+        assert!(cert.cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(cert.key_pem.contains("BEGIN PRIVATE KEY"));
+        assert!(!cert.cert_der.is_empty());
+    }
+
+    #[test]
+    fn test_issue_client_cert() {
+        let ca = CaBundle::new().unwrap();
+        let cert = ca.issue_client_cert("test-agent").unwrap();
+        assert!(cert.cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(cert.key_pem.contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn test_different_agents_get_different_certs() {
+        let ca = CaBundle::new().unwrap();
+        let c1 = ca.issue_client_cert("agent-1").unwrap();
+        let c2 = ca.issue_client_cert("agent-2").unwrap();
+        assert_ne!(c1.cert_pem, c2.cert_pem);
+        assert_ne!(c1.key_pem, c2.key_pem);
+    }
+}
