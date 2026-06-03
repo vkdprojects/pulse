@@ -1,88 +1,117 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Vixpi Pulse E2E Test ==="
+echo "╔══════════════════════════════════════╗"
+echo "║  Vixpi Pulse — E2E Production Test  ║"
+echo "╚══════════════════════════════════════╝"
 echo ""
 
-# Build
-echo "[1/4] Building images..."
-docker compose build --quiet
+cd "$(dirname "$0")/.."
 
-# Clean previous runs
+# Build
+echo "[1/5] Building images..."
+docker compose build --quiet 2>&1
+
+# Clean
 docker compose down -v 2>/dev/null || true
 
 # Start
-echo "[2/4] Starting services..."
-docker compose up -d
+echo "[2/5] Starting stack (DB + master + 3 agents)..."
+docker compose up -d 2>&1
 
-# Wait for agent to register and send metrics
-echo "[3/4] Waiting for agent to connect and send metrics..."
-sleep 15
+# Wait for metrics to flow
+echo "[3/5] Waiting 20s for agents to register and stream metrics..."
+sleep 20
 
-# Check logs
-echo "[4/4] Verifying..."
+# Collect evidence
+echo "[4/5] Validating..."
 echo ""
 
-MASTER_LOGS=$(docker compose logs master 2>&1)
-AGENT_LOGS=$(docker compose logs agent 2>&1)
-
 PASS=true
+fail() { echo "  ✗ $1"; PASS=false; }
+pass() { echo "  ✓ $1"; }
 
-# Check agent registered
+# --- Registration ---
+AGENTS=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM agents;" 2>/dev/null | tr -d ' ')
+if [ "$AGENTS" -ge 3 ] 2>/dev/null; then
+    pass "3 agents registered in DB (found: $AGENTS)"
+else
+    fail "Expected ≥3 agents, found: $AGENTS"
+fi
+
+# --- Metrics persisted ---
+METRICS=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM metrics;" 2>/dev/null | tr -d ' ')
+if [ "$METRICS" -ge 3 ] 2>/dev/null; then
+    pass "Metrics persisted in TimescaleDB (rows: $METRICS)"
+else
+    fail "Expected ≥3 metrics rows, found: $METRICS"
+fi
+
+# --- CPU data present ---
+CPU=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM metrics WHERE cpu_total_bp IS NOT NULL;" 2>/dev/null | tr -d ' ')
+if [ "$CPU" -ge 3 ] 2>/dev/null; then
+    pass "CPU telemetry data present ($CPU rows)"
+else
+    fail "No CPU data in metrics"
+fi
+
+# --- Memory data present ---
+MEM=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM metrics WHERE mem_total > 0;" 2>/dev/null | tr -d ' ')
+if [ "$MEM" -ge 3 ] 2>/dev/null; then
+    pass "Memory telemetry data present ($MEM rows)"
+else
+    fail "No memory data in metrics"
+fi
+
+# --- mTLS working ---
+MASTER_LOGS=$(docker compose logs master 2>&1)
 if echo "$MASTER_LOGS" | grep -q "agent registered"; then
-    echo "✓ Agent registered with master"
+    pass "mTLS connection successful (agents registered via TLS)"
 else
-    echo "✗ Agent registration not found in master logs"
-    PASS=false
+    fail "No agent registration in master logs"
 fi
 
-# Check metrics flowing
-if echo "$MASTER_LOGS" | grep -q "metrics"; then
-    echo "✓ Metrics flowing from agent to master"
+# --- Multiple agents unique ---
+UNIQUE=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(DISTINCT agent_id) FROM metrics;" 2>/dev/null | tr -d ' ')
+if [ "$UNIQUE" -ge 3 ] 2>/dev/null; then
+    pass "Multiple agents sending distinct metrics ($UNIQUE unique)"
 else
-    echo "✗ No metrics received by master"
-    PASS=false
+    fail "Expected ≥3 unique agents in metrics, found: $UNIQUE"
 fi
 
-# Check CPU data
-if echo "$MASTER_LOGS" | grep -q "cpu_pct"; then
-    echo "✓ CPU telemetry data present"
+# --- Hypertables configured ---
+HT=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM timescaledb_information.hypertables;" 2>/dev/null | tr -d ' ')
+if [ "$HT" -ge 2 ] 2>/dev/null; then
+    pass "TimescaleDB hypertables active ($HT)"
 else
-    echo "✗ No CPU data in metrics"
-    PASS=false
+    fail "Hypertables not configured"
 fi
 
-# Check memory data
-if echo "$MASTER_LOGS" | grep -q "memory"; then
-    echo "✓ Memory telemetry data present"
-else
-    echo "✗ No memory data in metrics"
-    PASS=false
-fi
-
-# Check mTLS working (agent connected successfully)
-if echo "$AGENT_LOGS" | grep -q "registered with master"; then
-    echo "✓ mTLS connection successful"
-else
-    echo "✗ Agent failed to connect via mTLS"
-    PASS=false
-fi
+# --- Show sample data ---
+echo ""
+echo "── Sample data from DB ──"
+docker compose exec -T db psql -U pulse -c "
+SELECT a.id, a.hostname, a.os, a.arch
+FROM agents a ORDER BY a.registered_at;" 2>/dev/null
+docker compose exec -T db psql -U pulse -c "
+SELECT time, agent_id, cpu_total_bp/100.0 as cpu_pct, mem_used/1048576 as mem_mb
+FROM metrics ORDER BY time DESC LIMIT 5;" 2>/dev/null
 
 echo ""
 
 # Cleanup
-docker compose down -v
+echo "[5/5] Cleaning up..."
+docker compose down -v 2>&1 | tail -1
 
+echo ""
 if [ "$PASS" = true ]; then
-    echo "=== ALL E2E TESTS PASSED ==="
+    echo "═══════════════════════════════════"
+    echo "  ALL 7 CHECKS PASSED ✓"
+    echo "═══════════════════════════════════"
     exit 0
 else
-    echo "=== SOME TESTS FAILED ==="
-    echo ""
-    echo "Master logs:"
-    echo "$MASTER_LOGS" | tail -20
-    echo ""
-    echo "Agent logs:"
-    echo "$AGENT_LOGS" | tail -20
+    echo "═══════════════════════════════════"
+    echo "  SOME CHECKS FAILED ✗"
+    echo "═══════════════════════════════════"
     exit 1
 fi

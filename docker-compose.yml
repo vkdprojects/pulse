@@ -5,8 +5,6 @@ services:
       POSTGRES_DB: pulse
       POSTGRES_USER: pulse
       POSTGRES_PASSWORD: pulse
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -39,9 +37,34 @@ services:
       gen-certs:
         condition: service_completed_successfully
 
-  agent:
+  agent-1:
     build: .
     entrypoint: ["/usr/local/bin/pulse-agent", "/etc/pulse-agent.toml"]
+    hostname: server-us-east-1
+    volumes:
+      - certs:/certs:ro
+      - ./docker/agent.toml:/etc/pulse-agent.toml:ro
+    depends_on:
+      master:
+        condition: service_started
+    restart: on-failure
+
+  agent-2:
+    build: .
+    entrypoint: ["/usr/local/bin/pulse-agent", "/etc/pulse-agent.toml"]
+    hostname: server-eu-west-1
+    volumes:
+      - certs:/certs:ro
+      - ./docker/agent.toml:/etc/pulse-agent.toml:ro
+    depends_on:
+      master:
+        condition: service_started
+    restart: on-failure
+
+  agent-3:
+    build: .
+    entrypoint: ["/usr/local/bin/pulse-agent", "/etc/pulse-agent.toml"]
+    hostname: server-sa-east-1
     volumes:
       - certs:/certs:ro
       - ./docker/agent.toml:/etc/pulse-agent.toml:ro

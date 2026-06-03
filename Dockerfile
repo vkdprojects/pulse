@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/ap
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY migrations migrations
 
 RUN cargo build --release --workspace
 
