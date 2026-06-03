@@ -110,8 +110,15 @@ message CommandRequest {
     ExecCommand exec = 2;
     PackageCommand package = 3;
     FileCommand file = 4;
+    LogTailCommand log_tail = 6;
   }
   uint32 timeout_secs = 5;
+}
+
+message LogTailCommand {
+  string path = 1;
+  uint32 lines = 2;
+  bool follow = 3;
 }
 
 message ExecCommand {

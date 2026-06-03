@@ -29,6 +29,10 @@ pub async fn execute(req: CommandRequest, tx: mpsc::Sender<CommandResponse>) -> 
             handle_file_command(&request_id, file_cmd, &tx).await;
             return Ok(());
         }
+        Some(pulse_proto::pb::command_request::Command::LogTail(tail)) => {
+            handle_log_tail(&request_id, tail, timeout_secs, &tx).await;
+            return Ok(());
+        }
         _ => {
             let _ = tx
                 .send(CommandResponse {
@@ -189,6 +193,38 @@ async fn handle_file_command(request_id: &str, cmd: pulse_proto::pb::FileCommand
                 exit_code: result.0,
                 timed_out: result.1,
                 error: result.2,
+            })),
+        })
+        .await;
+}
+
+async fn handle_log_tail(
+    request_id: &str,
+    cmd: pulse_proto::pb::LogTailCommand,
+    timeout_secs: u32,
+    tx: &mpsc::Sender<CommandResponse>,
+) {
+    let lines = if cmd.lines > 0 { cmd.lines } else { 50 };
+    let mut args = vec!["-n".to_string(), lines.to_string()];
+    if cmd.follow {
+        args.push("-f".to_string());
+    }
+    args.push(cmd.path);
+
+    let result = execute_command(request_id, "tail", &args, "", timeout_secs, tx).await;
+
+    let (exit_code, timed_out, error) = match result {
+        Ok((code, to)) => (code, to, String::new()),
+        Err(e) => (-1, false, e.to_string()),
+    };
+
+    let _ = tx
+        .send(CommandResponse {
+            request_id: request_id.into(),
+            payload: Some(pulse_proto::pb::command_response::Payload::Result(CommandResult {
+                exit_code,
+                timed_out,
+                error,
             })),
         })
         .await;

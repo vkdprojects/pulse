@@ -78,13 +78,39 @@ impl AlertEngine {
         warn!(agent_id, alert_type, message, "ALERT FIRED");
 
         if let Some(ref url) = self.webhook_url {
-            let body = format!(r#"{{"agent":"{}","type":"{}","message":"{}"}}"#, agent_id, alert_type, message);
+            let body = format_webhook_body(url, agent_id, alert_type, message);
             let url = url.clone();
             tokio::spawn(async move {
                 let _ = post_webhook(&url, &body).await;
             });
         }
     }
+}
+
+fn format_webhook_body(url: &str, agent_id: &str, alert_type: &str, message: &str) -> String {
+    if url.contains("api.telegram.org") {
+        // Telegram Bot API format
+        format!(
+            r#"{{"chat_id":"{}","text":"🚨 *PULSE ALERT*\n\nAgent: `{}`\nType: {}\n{}","parse_mode":"Markdown"}}"#,
+            std::env::var("PULSE_ALERT_TELEGRAM_CHAT_ID").unwrap_or_default(),
+            agent_id,
+            alert_type,
+            message
+        )
+    } else if url.contains("hooks.slack.com") || url.contains("discord.com/api/webhooks") {
+        // Slack/Discord webhook format (compatible)
+        format!(r#"{{"content":"🚨 **PULSE ALERT**\n\nAgent: `{}`\nType: {}\n{}"}}"#, agent_id, alert_type, message)
+    } else {
+        // Generic webhook
+        format!(r#"{{"agent":"{}","type":"{}","message":"{}","timestamp":"{}"}}"#, agent_id, alert_type, message, now())
+    }
+}
+
+fn now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
 }
 
 async fn post_webhook(url: &str, body: &str) -> anyhow::Result<()> {
