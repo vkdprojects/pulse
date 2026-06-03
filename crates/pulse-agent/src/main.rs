@@ -6,6 +6,7 @@ mod worker;
 use anyhow::Result;
 use config::Config;
 use pulse_proto::pb::{CommandResponse, MetricsPayload, RegisterRequest, pulse_agent_client::PulseAgentClient};
+use std::collections::VecDeque;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
 use tokio_stream::wrappers::ReceiverStream;
@@ -25,14 +26,15 @@ async fn main() -> Result<()> {
 
 async fn run_agent(config: Config) -> Result<()> {
     let mut backoff_secs = 1u64;
+    let mut buffer: VecDeque<MetricsPayload> = VecDeque::with_capacity(100);
 
     loop {
-        let result = connect_and_stream(&config).await;
+        let result = connect_and_stream(&config, &mut buffer).await;
         match result {
             Ok(()) => return Ok(()),
             Err(e) => {
                 let backoff = Duration::from_secs(backoff_secs);
-                error!(error = %e, ?backoff, "connection lost, reconnecting");
+                error!(error = %e, buffer_size = buffer.len(), ?backoff, "connection lost, reconnecting");
                 sleep(backoff).await;
                 backoff_secs = (backoff_secs * 2).min(60);
             }
@@ -40,7 +42,7 @@ async fn run_agent(config: Config) -> Result<()> {
     }
 }
 
-async fn connect_and_stream(config: &Config) -> Result<()> {
+async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayload>) -> Result<()> {
     let channel = build_channel(config).await?;
     let mut client = PulseAgentClient::new(channel);
 
@@ -51,6 +53,7 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
             arch: std::env::consts::ARCH.into(),
             agent_version: env!("CARGO_PKG_VERSION").into(),
             labels: config.labels.clone(),
+            auth_token: config.auth_token.clone(),
         })
         .await?;
 
@@ -101,6 +104,16 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
+    // Drain buffered metrics from previous disconnection
+    if !buffer.is_empty() {
+        info!(count = buffer.len(), "draining buffered metrics");
+        while let Some(payload) = buffer.pop_front() {
+            if metrics_tx.send(payload).await.is_err() {
+                break;
+            }
+        }
+    }
+
     let mut first = true;
     loop {
         tokio::select! {
@@ -114,8 +127,13 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
                 first = false;
                 match collect_snapshot(&agent_id).await {
                     Ok(payload) => {
-                        if metrics_tx.send(payload).await.is_err() {
-                            warn!("metrics channel closed");
+                        if metrics_tx.send(payload.clone()).await.is_err() {
+                            // Buffer for next reconnection
+                            if buffer.len() >= 100 {
+                                buffer.pop_front();
+                            }
+                            buffer.push_back(payload);
+                            warn!(buffer_size = buffer.len(), "metrics channel closed, buffering");
                             break;
                         }
                     }

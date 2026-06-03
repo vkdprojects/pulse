@@ -14,6 +14,9 @@ pub struct Config {
     pub labels: Vec<String>,
 
     #[serde(default)]
+    pub auth_token: String,
+
+    #[serde(default)]
     pub tls: TlsConfig,
 }
 
@@ -47,6 +50,7 @@ impl Default for Config {
             master_endpoint: default_endpoint(),
             metrics_interval_ms: default_interval(),
             labels: Vec::new(),
+            auth_token: String::new(),
             tls: TlsConfig::default(),
         }
     }

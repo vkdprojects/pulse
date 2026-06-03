@@ -15,6 +15,7 @@ pub struct AlertEngine {
 struct AlertState {
     cpu_high_count: u32,
     mem_high_count: u32,
+    bandwidth_high_count: u32,
 }
 
 impl Default for AlertEngine {
@@ -39,8 +40,11 @@ impl AlertEngine {
 
     pub async fn check(&self, payload: &MetricsPayload) {
         let mut state = self.state.lock().await;
-        let entry =
-            state.entry(payload.agent_id.clone()).or_insert(AlertState { cpu_high_count: 0, mem_high_count: 0 });
+        let entry = state.entry(payload.agent_id.clone()).or_insert(AlertState {
+            cpu_high_count: 0,
+            mem_high_count: 0,
+            bandwidth_high_count: 0,
+        });
 
         if let Some(ref cpu) = payload.cpu {
             if cpu.usage_total_bp > self.cpu_threshold_bp {
@@ -72,6 +76,21 @@ impl AlertEngine {
                 entry.mem_high_count = 0;
             }
         }
+
+        // Bandwidth check (>100MB/s on any interface)
+        let bw_threshold: u64 =
+            std::env::var("PULSE_ALERT_BW_MBPS").ok().and_then(|s| s.parse().ok()).unwrap_or(100) * 1_000_000;
+        let max_bw = payload.net.iter().map(|n| n.rx_bytes_sec.max(n.tx_bytes_sec)).max().unwrap_or(0);
+        if max_bw > bw_threshold {
+            entry.bandwidth_high_count += 1;
+            if entry.bandwidth_high_count == 3 {
+                let msg =
+                    format!("Bandwidth at {} MB/s (threshold: {} MB/s)", max_bw / 1_000_000, bw_threshold / 1_000_000);
+                self.fire(&payload.agent_id, "bandwidth_high", &msg).await;
+            }
+        } else {
+            entry.bandwidth_high_count = 0;
+        }
     }
 
     async fn fire(&self, agent_id: &str, alert_type: &str, message: &str) {
@@ -84,6 +103,10 @@ impl AlertEngine {
                 let _ = post_webhook(&url, &body).await;
             });
         }
+    }
+
+    pub async fn fire_custom(&self, agent_id: &str, alert_type: &str, message: &str) {
+        self.fire(agent_id, alert_type, message).await;
     }
 }
 

@@ -32,6 +32,7 @@ async fn test_register_plain() {
             arch: "x86_64".into(),
             agent_version: "0.1.0".into(),
             labels: vec!["test".into()],
+            auth_token: String::new(),
         })
         .await
         .unwrap();
@@ -148,6 +149,7 @@ async fn test_register_mtls() {
             arch: "aarch64".into(),
             agent_version: "0.1.0".into(),
             labels: vec!["secure".into()],
+            auth_token: String::new(),
         })
         .await
         .unwrap();
@@ -198,6 +200,7 @@ async fn test_mtls_rejects_no_client_cert() {
                 arch: "x86_64".into(),
                 agent_version: "0.1.0".into(),
                 labels: vec![],
+                auth_token: String::new(),
             })
             .await;
         assert!(resp.is_err(), "mTLS should reject client without cert");
@@ -249,6 +252,7 @@ async fn test_mtls_rejects_wrong_ca() {
                 arch: "x86_64".into(),
                 agent_version: "0.1.0".into(),
                 labels: vec![],
+                auth_token: String::new(),
             })
             .await;
         assert!(resp.is_err(), "mTLS should reject cert signed by wrong CA");
@@ -282,6 +286,7 @@ async fn test_register_returns_certs_when_ca_configured() {
             arch: "x86_64".into(),
             agent_version: "0.1.0".into(),
             labels: vec![],
+            auth_token: String::new(),
         })
         .await
         .unwrap();
@@ -311,6 +316,7 @@ async fn test_register_returns_empty_certs_without_ca() {
             arch: "x86_64".into(),
             agent_version: "0.1.0".into(),
             labels: vec![],
+            auth_token: String::new(),
         })
         .await
         .unwrap();

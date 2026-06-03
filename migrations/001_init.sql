@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS agents (
     arch TEXT NOT NULL,
     agent_version TEXT NOT NULL,
     labels TEXT[] NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'online',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

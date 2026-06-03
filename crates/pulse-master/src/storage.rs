@@ -150,4 +150,23 @@ impl Storage {
 
         Ok(())
     }
+
+    pub async fn get_offline_agents(&self, timeout_secs: i64) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM agents WHERE last_seen_at < NOW() - make_interval(secs => $1) AND COALESCE(status, 'online') = 'online'"
+        )
+        .bind(timeout_secs as f64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    pub async fn set_agent_status(&self, agent_id: &str, status: &str) -> Result<()> {
+        sqlx::query("UPDATE agents SET status = $2 WHERE id = $1")
+            .bind(agent_id)
+            .bind(status)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

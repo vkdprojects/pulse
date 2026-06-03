@@ -202,6 +202,7 @@ message RegisterRequest {
   string arch = 3;
   string agent_version = 4;
   repeated string labels = 5;
+  string auth_token = 6;
 }
 
 message RegisterResponse {

@@ -20,6 +20,7 @@ pub struct PulseService {
     storage: Option<Storage>,
     ca: Option<Arc<CaBundle>>,
     alerts: AlertEngine,
+    register_token: Option<String>,
 }
 
 impl Default for PulseService {
@@ -36,6 +37,7 @@ impl PulseService {
             storage: None,
             ca: None,
             alerts: AlertEngine::new(),
+            register_token: std::env::var("PULSE_REGISTER_TOKEN").ok(),
         }
     }
 
@@ -62,6 +64,14 @@ impl PulseService {
 impl PulseAgent for PulseService {
     async fn register(&self, req: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
         let r = req.into_inner();
+
+        // Auth check
+        if let Some(ref expected) = self.register_token
+            && r.auth_token != *expected
+        {
+            return Err(Status::unauthenticated("invalid register token"));
+        }
+
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let agent_id = format!("agent-{:04x}", id);
         info!(agent_id, hostname = r.hostname, os = r.os, arch = r.arch, version = r.agent_version, "agent registered");

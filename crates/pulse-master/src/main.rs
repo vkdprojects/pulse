@@ -48,8 +48,8 @@ async fn main() -> Result<()> {
     };
 
     let mut service = PulseService::new();
-    if let Some(s) = storage {
-        service = service.with_storage(s);
+    if let Some(ref s) = storage {
+        service = service.with_storage(s.clone());
     }
 
     // Load or create CA for auto-provisioning
@@ -58,6 +58,25 @@ async fn main() -> Result<()> {
         info!("CA initialized for agent auto-provisioning");
         service = service.with_ca(ca);
     }
+
+    // Background: agent offline detection
+    if let Some(s) = storage {
+        let alerts = pulse_master::alerts::AlertEngine::new();
+        tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(s, alerts));
+    }
+
+    // Health endpoint (HTTP)
+    tokio::spawn(async {
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+        info!("health endpoint on :8080/health");
+        loop {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                use tokio::io::AsyncWriteExt;
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}\n";
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        }
+    });
 
     builder.add_service(service.into_server()).serve(addr).await?;
     Ok(())

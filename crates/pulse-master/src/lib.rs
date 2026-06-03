@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod ca;
+pub mod heartbeat;
 pub mod service;
 pub mod storage;
 
