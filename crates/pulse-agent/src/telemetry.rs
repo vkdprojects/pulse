@@ -463,6 +463,47 @@ pub async fn collect_battery() -> u32 {
     fs::read_to_string(path).await.ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
 
+pub async fn collect_ssh_sessions() -> Vec<pulse_proto::pb::SshSession> {
+    parse_utmp().unwrap_or_default()
+}
+
+fn parse_utmp() -> Result<Vec<pulse_proto::pb::SshSession>> {
+    use std::io::Read;
+
+    // utmpx struct on Linux x86_64: 384 bytes total
+    const UTMP_SIZE: usize = 384;
+    const UT_USER_PROCESS: i16 = 7;
+
+    let mut file = std::fs::File::open("/var/run/utmp")?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+
+    let mut sessions = Vec::new();
+
+    for chunk in buf.chunks_exact(UTMP_SIZE) {
+        let ut_type = i16::from_ne_bytes([chunk[0], chunk[1]]);
+        if ut_type != UT_USER_PROCESS {
+            continue;
+        }
+
+        let pid = i32::from_ne_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as u32;
+        let line = read_cstr(&chunk[8..40]); // ut_line: 32 bytes
+        let user = read_cstr(&chunk[44..76]); // ut_user: 32 bytes (after ut_id[4])
+        let host = read_cstr(&chunk[76..332]); // ut_host: 256 bytes
+
+        // Only include sessions with a remote host (SSH, not local tty)
+        if !host.is_empty() {
+            sessions.push(pulse_proto::pb::SshSession { user, remote_ip: host, tty: line, pid });
+        }
+    }
+    Ok(sessions)
+}
+
+fn read_cstr(bytes: &[u8]) -> String {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

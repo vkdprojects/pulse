@@ -77,6 +77,7 @@ async fn test_stream_metrics_plain() {
             gpus: vec![],
             disk_health: vec![],
             battery_pct: 0,
+            ssh_sessions: vec![],
         },
         MetricsPayload {
             timestamp_ms: 11000,
@@ -93,6 +94,7 @@ async fn test_stream_metrics_plain() {
             gpus: vec![],
             disk_health: vec![],
             battery_pct: 0,
+            ssh_sessions: vec![],
         },
     ];
 

@@ -24,6 +24,14 @@ message MetricsPayload {
   repeated GpuMetrics gpus = 12;
   repeated DiskHealth disk_health = 13;
   uint32 battery_pct = 14;
+  repeated SshSession ssh_sessions = 15;
+}
+
+message SshSession {
+  string user = 1;
+  string remote_ip = 2;
+  string tty = 3;
+  uint32 pid = 4;
 }
 
 message CpuMetrics {
