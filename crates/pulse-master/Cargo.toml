@@ -11,4 +11,6 @@ tonic-prost = { workspace = true }
 tokio-stream = { workspace = true }
 rcgen = { workspace = true }
 rustls-pki-types = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

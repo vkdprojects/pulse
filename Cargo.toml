@@ -16,6 +16,10 @@ prost = "0.14"
 rcgen = { version = "0.14", features = ["ring"] }
 rustls-pki-types = "1"
 tokio-stream = "0.1"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 
 [profile.release]
