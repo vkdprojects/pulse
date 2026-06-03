@@ -102,6 +102,7 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
+    let mut first = true;
     loop {
         tokio::select! {
             _ = &mut shutdown => {
@@ -110,7 +111,8 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
                 drop(cmd_tx);
                 break;
             }
-            _ = sleep(interval) => {
+            _ = sleep(if first { Duration::from_millis(100) } else { interval }) => {
+                first = false;
                 match collect_snapshot(&agent_id).await {
                     Ok(payload) => {
                         if metrics_tx.send(payload).await.is_err() {

@@ -1,0 +1,8 @@
+master_endpoint = "https://master:50051"
+metrics_interval_ms = 5000
+labels = ["docker", "test"]
+
+[tls]
+ca_cert = "/certs/ca.pem"
+client_cert = "/certs/client.pem"
+client_key = "/certs/client-key.pem"

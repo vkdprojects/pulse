@@ -74,3 +74,21 @@ release-master:
 clean:
     cargo clean
     rm -rf .certs
+
+# --- Docker ---
+
+# Build Docker images
+docker-build:
+    docker compose build
+
+# Run full stack in Docker (master + agent with mTLS)
+docker-dev:
+    docker compose up --build
+
+# Run e2e tests in Docker (Linux telemetry + mTLS)
+docker-test:
+    ./tests/e2e-docker.sh
+
+# Stop Docker stack
+docker-down:
+    docker compose down -v

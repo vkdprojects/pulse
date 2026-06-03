@@ -1,0 +1,35 @@
+services:
+  gen-certs:
+    build: .
+    entrypoint: ["/usr/local/bin/pulse-master", "gen-certs", "/certs"]
+    volumes:
+      - certs:/certs
+
+  master:
+    build: .
+    entrypoint: ["/usr/local/bin/pulse-master"]
+    environment:
+      PULSE_LISTEN: "0.0.0.0:50051"
+      PULSE_TLS_DIR: /certs
+      RUST_LOG: info
+    ports:
+      - "50051:50051"
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      gen-certs:
+        condition: service_completed_successfully
+
+  agent:
+    build: .
+    entrypoint: ["/usr/local/bin/pulse-agent", "/etc/pulse-agent.toml"]
+    volumes:
+      - certs:/certs:ro
+      - ./docker/agent.toml:/etc/pulse-agent.toml:ro
+    depends_on:
+      master:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  certs:

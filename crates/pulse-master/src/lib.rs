@@ -6,7 +6,7 @@ use ca::CaBundle;
 
 pub fn gen_dev_certs(output_dir: &str) -> Result<()> {
     let ca = CaBundle::new()?;
-    let server = ca.issue_server_cert(&["localhost", "::1", "127.0.0.1"])?;
+    let server = ca.issue_server_cert(&["localhost", "::1", "127.0.0.1", "master", "pulse-master"])?;
     let client = ca.issue_client_cert("dev-agent")?;
 
     std::fs::create_dir_all(output_dir)?;
