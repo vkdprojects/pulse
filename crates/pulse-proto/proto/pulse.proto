@@ -145,4 +145,6 @@ message RegisterResponse {
   string agent_id = 1;
   uint32 metrics_interval_ms = 2;
   bytes ca_cert = 3;
+  bytes client_cert = 4;
+  bytes client_key = 5;
 }

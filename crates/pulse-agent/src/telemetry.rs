@@ -146,17 +146,32 @@ pub async fn collect_disks() -> Result<Vec<DiskMetrics>> {
             continue;
         }
 
-        // Use statfs via nix would be better, but we keep it zero-dep
-        // For now report mount point only — full disk stats need statfs syscall
+        let (total, used) = statvfs_bytes(mount);
         disks.push(DiskMetrics {
             mount_point: mount.to_string(),
-            total_bytes: 0,
-            used_bytes: 0,
+            total_bytes: total,
+            used_bytes: used,
             read_bytes_sec: 0,
             write_bytes_sec: 0,
         });
     }
     Ok(disks)
+}
+
+fn statvfs_bytes(path: &str) -> (u64, u64) {
+    use std::ffi::CString;
+    let Ok(c_path) = CString::new(path) else { return (0, 0) };
+    unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+            let block_size = stat.f_frsize as u64;
+            let total = (stat.f_blocks as u64) * block_size;
+            let free = (stat.f_bfree as u64) * block_size;
+            (total, total.saturating_sub(free))
+        } else {
+            (0, 0)
+        }
+    }
 }
 
 pub async fn collect_system() -> Result<SystemMetrics> {

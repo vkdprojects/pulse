@@ -1,3 +1,4 @@
+use crate::ca::CaBundle;
 use crate::storage::Storage;
 use pulse_proto::pb::{
     CommandRequest, CommandResponse, MetricsAck, MetricsPayload, RegisterRequest, RegisterResponse,
@@ -16,6 +17,7 @@ pub struct PulseService {
     next_id: AtomicU64,
     cmd_tx: Arc<tokio::sync::Mutex<Option<mpsc::Sender<CommandRequest>>>>,
     storage: Option<Storage>,
+    ca: Option<Arc<CaBundle>>,
 }
 
 impl Default for PulseService {
@@ -26,11 +28,16 @@ impl Default for PulseService {
 
 impl PulseService {
     pub fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), cmd_tx: Arc::new(tokio::sync::Mutex::new(None)), storage: None }
+        Self { next_id: AtomicU64::new(1), cmd_tx: Arc::new(tokio::sync::Mutex::new(None)), storage: None, ca: None }
     }
 
     pub fn with_storage(mut self, storage: Storage) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    pub fn with_ca(mut self, ca: CaBundle) -> Self {
+        self.ca = Some(Arc::new(ca));
         self
     }
 
@@ -55,7 +62,14 @@ impl PulseAgent for PulseService {
             db.upsert_agent(&agent_id, &r).await.map_err(|e| Status::internal(e.to_string()))?;
         }
 
-        Ok(Response::new(RegisterResponse { agent_id, metrics_interval_ms: 10_000, ca_cert: Vec::new() }))
+        let (ca_cert, client_cert, client_key) = if let Some(ref ca) = self.ca {
+            let issued = ca.issue_client_cert(&agent_id).map_err(|e| Status::internal(e.to_string()))?;
+            (ca.ca_cert_pem.as_bytes().to_vec(), issued.cert_pem.into_bytes(), issued.key_pem.into_bytes())
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+
+        Ok(Response::new(RegisterResponse { agent_id, metrics_interval_ms: 10_000, ca_cert, client_cert, client_key }))
     }
 
     async fn stream_metrics(&self, req: Request<Streaming<MetricsPayload>>) -> Result<Response<MetricsAck>, Status> {

@@ -25,6 +25,10 @@ pub async fn execute(req: CommandRequest, tx: mpsc::Sender<CommandResponse>) -> 
             let args: Vec<String> = std::iter::once(action.to_string()).chain(pkg.packages.into_iter()).collect();
             execute_command(&request_id, "apt-get", &args, "", timeout_secs, &tx).await
         }
+        Some(pulse_proto::pb::command_request::Command::File(file_cmd)) => {
+            handle_file_command(&request_id, file_cmd, &tx).await;
+            return Ok(());
+        }
         _ => {
             let _ = tx
                 .send(CommandResponse {
@@ -141,4 +145,51 @@ async fn execute_command(
             Ok((-1, true))
         }
     }
+}
+
+async fn handle_file_command(request_id: &str, cmd: pulse_proto::pb::FileCommand, tx: &mpsc::Sender<CommandResponse>) {
+    use pulse_proto::pb::file_command::Action;
+
+    let result = match cmd.action() {
+        Action::Read => match tokio::fs::read(&cmd.path).await {
+            Ok(data) => {
+                let _ = tx
+                    .send(CommandResponse {
+                        request_id: request_id.into(),
+                        payload: Some(pulse_proto::pb::command_response::Payload::Output(OutputChunk {
+                            stream: OutputStream::Stdout.into(),
+                            data,
+                        })),
+                    })
+                    .await;
+                (0, false, String::new())
+            }
+            Err(e) => (-1, false, e.to_string()),
+        },
+        Action::Write => match tokio::fs::write(&cmd.path, &cmd.content).await {
+            Ok(()) => (0, false, String::new()),
+            Err(e) => (-1, false, e.to_string()),
+        },
+        Action::Append => {
+            use tokio::io::AsyncWriteExt;
+            match tokio::fs::OpenOptions::new().append(true).create(true).open(&cmd.path).await {
+                Ok(mut f) => match f.write_all(&cmd.content).await {
+                    Ok(()) => (0, false, String::new()),
+                    Err(e) => (-1, false, e.to_string()),
+                },
+                Err(e) => (-1, false, e.to_string()),
+            }
+        }
+    };
+
+    let _ = tx
+        .send(CommandResponse {
+            request_id: request_id.into(),
+            payload: Some(pulse_proto::pb::command_response::Payload::Result(CommandResult {
+                exit_code: result.0,
+                timed_out: result.1,
+                error: result.2,
+            })),
+        })
+        .await;
 }

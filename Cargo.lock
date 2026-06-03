@@ -1416,6 +1416,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hostname",
+ "libc",
  "pulse-proto",
  "serde",
  "tokio",

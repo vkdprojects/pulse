@@ -26,3 +26,35 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+
+  build-musl:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+      - name: Install musl tools + protoc
+        run: sudo apt-get install -y musl-tools protobuf-compiler
+      - name: Build agent (musl static)
+        run: cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
+      - name: Build master (musl static)
+        run: cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
+      - name: Show binary sizes
+        run: |
+          ls -lh target/x86_64-unknown-linux-musl/release/pulse-agent
+          ls -lh target/x86_64-unknown-linux-musl/release/pulse-master
+      - name: Upload agent binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-agent-x86_64-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/pulse-agent
+      - name: Upload master binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-master-x86_64-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/pulse-master
