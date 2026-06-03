@@ -70,6 +70,9 @@ async fn test_stream_metrics_plain() {
             net: vec![],
             system: Some(SystemMetrics { uptime_secs: 3600, processes_total: 150, processes_running: 3 }),
             containers: vec![],
+            disk_io: vec![],
+            top_processes: vec![],
+            temperatures: vec![],
         },
         MetricsPayload {
             timestamp_ms: 11000,
@@ -80,6 +83,9 @@ async fn test_stream_metrics_plain() {
             net: vec![],
             system: None,
             containers: vec![],
+            disk_io: vec![],
+            top_processes: vec![],
+            temperatures: vec![],
         },
     ];
 

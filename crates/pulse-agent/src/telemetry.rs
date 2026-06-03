@@ -1,5 +1,7 @@
 use anyhow::Result;
-use pulse_proto::pb::{CpuMetrics, DiskMetrics, MemoryMetrics, NetMetrics, SystemMetrics};
+use pulse_proto::pb::{
+    CpuMetrics, DiskIoMetrics, DiskMetrics, MemoryMetrics, NetMetrics, ProcessInfo, SystemMetrics, TemperatureMetrics,
+};
 use std::path::Path;
 use tokio::fs;
 
@@ -190,6 +192,112 @@ pub async fn collect_system() -> Result<SystemMetrics> {
     }
 
     Ok(SystemMetrics { uptime_secs, processes_total: procs_total, processes_running: procs_running })
+}
+
+pub async fn collect_disk_io() -> Result<Vec<DiskIoMetrics>> {
+    let content = fs::read_to_string("/proc/diskstats").await?;
+    let mut metrics = Vec::new();
+
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 14 {
+            continue;
+        }
+        let device = parts[2];
+        // Skip partitions (only whole disks: sda, vda, nvme0n1)
+        if device.chars().last().is_some_and(|c| c.is_ascii_digit())
+            && !device.contains("nvme")
+            && !device.starts_with("dm-")
+        {
+            continue;
+        }
+        if device.starts_with("loop") || device.starts_with("ram") {
+            continue;
+        }
+
+        let read_ops: u64 = parts[3].parse().unwrap_or(0);
+        let read_sectors: u64 = parts[5].parse().unwrap_or(0);
+        let write_ops: u64 = parts[7].parse().unwrap_or(0);
+        let write_sectors: u64 = parts[9].parse().unwrap_or(0);
+
+        metrics.push(DiskIoMetrics {
+            device: device.into(),
+            read_bytes: read_sectors * 512,
+            write_bytes: write_sectors * 512,
+            read_ops,
+            write_ops,
+        });
+    }
+    Ok(metrics)
+}
+
+pub async fn collect_top_processes() -> Result<Vec<ProcessInfo>> {
+    let mut procs: Vec<(u32, String, u64, u64)> = Vec::new();
+    let mut entries = fs::read_dir("/proc").await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let pid: u32 = match name.to_string_lossy().parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        let stat_path = format!("/proc/{pid}/stat");
+        let Ok(stat) = fs::read_to_string(&stat_path).await else { continue };
+
+        // Parse: pid (comm) state ... field[13]=utime field[14]=stime field[23]=rss
+        let comm_start = stat.find('(').unwrap_or(0);
+        let comm_end = stat.rfind(')').unwrap_or(0);
+        if comm_end <= comm_start {
+            continue;
+        }
+        let comm = stat[comm_start + 1..comm_end].to_string();
+        let rest: Vec<&str> = stat[comm_end + 2..].split_whitespace().collect();
+        if rest.len() < 22 {
+            continue;
+        }
+
+        let utime: u64 = rest[11].parse().unwrap_or(0);
+        let stime: u64 = rest[12].parse().unwrap_or(0);
+        let rss_pages: u64 = rest[21].parse().unwrap_or(0);
+
+        procs.push((pid, comm, utime + stime, rss_pages * 4096));
+    }
+
+    // Sort by CPU time descending, take top 5
+    procs.sort_by(|a, b| b.2.cmp(&a.2));
+    procs.truncate(5);
+
+    Ok(procs
+        .into_iter()
+        .map(|(pid, name, _cpu_ticks, rss)| ProcessInfo { pid, name, cpu_bp: 0, rss_bytes: rss })
+        .collect())
+}
+
+pub async fn collect_temperatures() -> Result<Vec<TemperatureMetrics>> {
+    let mut temps = Vec::new();
+    let base = Path::new("/sys/class/thermal");
+    if !base.exists() {
+        return Ok(temps);
+    }
+
+    let mut entries = fs::read_dir(base).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("thermal_zone") {
+            continue;
+        }
+        let temp_path = entry.path().join("temp");
+        let type_path = entry.path().join("type");
+
+        let zone = fs::read_to_string(&type_path).await.unwrap_or(name).trim().to_string();
+        let temp_mc: i32 = fs::read_to_string(&temp_path).await.ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+
+        if temp_mc > 0 {
+            temps.push(TemperatureMetrics { zone, temp_mc });
+        }
+    }
+    Ok(temps)
 }
 
 #[cfg(test)]

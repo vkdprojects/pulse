@@ -18,6 +18,9 @@ message MetricsPayload {
   repeated NetMetrics net = 6;
   SystemMetrics system = 7;
   repeated ContainerMetrics containers = 8;
+  repeated DiskIoMetrics disk_io = 9;
+  repeated ProcessInfo top_processes = 10;
+  repeated TemperatureMetrics temperatures = 11;
 }
 
 message CpuMetrics {
@@ -72,6 +75,26 @@ message ContainerMetrics {
   uint64 mem_limit = 7;
   uint64 net_rx_bytes = 8;
   uint64 net_tx_bytes = 9;
+}
+
+message DiskIoMetrics {
+  string device = 1;
+  uint64 read_bytes = 2;
+  uint64 write_bytes = 3;
+  uint64 read_ops = 4;
+  uint64 write_ops = 5;
+}
+
+message ProcessInfo {
+  uint32 pid = 1;
+  string name = 2;
+  uint32 cpu_bp = 3;
+  uint64 rss_bytes = 4;
+}
+
+message TemperatureMetrics {
+  string zone = 1;
+  int32 temp_mc = 2;
 }
 
 message MetricsAck {

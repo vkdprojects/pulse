@@ -133,13 +133,16 @@ async fn connect_and_stream(config: &Config) -> Result<()> {
 async fn collect_snapshot(agent_id: &str) -> Result<MetricsPayload> {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
 
-    let (cpu, memory, net, disks, system, ctrs) = tokio::join!(
+    let (cpu, memory, net, disks, system, ctrs, disk_io, procs, temps) = tokio::join!(
         telemetry::collect_cpu(),
         telemetry::collect_memory(),
         telemetry::collect_net(),
         telemetry::collect_disks(),
         telemetry::collect_system(),
         containers::collect_containers(),
+        telemetry::collect_disk_io(),
+        telemetry::collect_top_processes(),
+        telemetry::collect_temperatures(),
     );
 
     Ok(MetricsPayload {
@@ -151,6 +154,9 @@ async fn collect_snapshot(agent_id: &str) -> Result<MetricsPayload> {
         disks: disks.unwrap_or_default(),
         system: system.ok(),
         containers: ctrs.unwrap_or_default(),
+        disk_io: disk_io.unwrap_or_default(),
+        top_processes: procs.unwrap_or_default(),
+        temperatures: temps.unwrap_or_default(),
     })
 }
 
