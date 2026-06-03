@@ -12,7 +12,8 @@
         "query": "SELECT id FROM agents ORDER BY id",
         "datasource": "TimescaleDB",
         "multi": true,
-        "includeAll": true
+        "includeAll": true,
+        "allValue": ".*"
       }
     ]
   },
@@ -24,7 +25,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, agent_id, cpu_total_bp / 100.0 AS cpu_pct FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, agent_id, cpu_total_bp / 100.0 AS cpu_pct FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
           "format": "time_series"
         }
       ],
@@ -37,7 +38,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, agent_id, mem_used / 1048576 AS mem_mb FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, agent_id, mem_used / 1048576 AS mem_mb FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
           "format": "time_series"
         }
       ],
@@ -50,7 +51,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, agent_id, load_1m / 100.0 AS load FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, agent_id, load_1m / 100.0 AS load FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -62,7 +63,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, agent_id || '/' || interface AS metric, rx_bytes, tx_bytes FROM net_metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, agent_id || '/' || interface AS metric, rx_bytes, tx_bytes FROM net_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
           "format": "time_series"
         }
       ],
@@ -75,7 +76,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, agent_id || '/' || container_name AS container, mem_usage / 1048576 AS mem_mb FROM container_metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, agent_id || '/' || container_name AS container, mem_usage / 1048576 AS mem_mb FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
           "format": "time_series"
         }
       ],
