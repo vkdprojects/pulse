@@ -5,6 +5,10 @@ edition.workspace = true
 
 [dependencies]
 pulse-proto = { path = "../pulse-proto" }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "net"] }
 tonic = { workspace = true, features = ["transport", "tls-ring"] }
+tonic-prost = { workspace = true }
+tokio-stream = { workspace = true }
+rcgen = { workspace = true }
+rustls-pki-types = { workspace = true }
 anyhow = { workspace = true }

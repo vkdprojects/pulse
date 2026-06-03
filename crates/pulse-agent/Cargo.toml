@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 pulse-proto = { path = "../pulse-proto" }
-tokio = { workspace = true, features = ["rt", "macros", "signal"] }
+tokio = { workspace = true, features = ["rt", "macros", "signal", "net"] }
 tonic = { workspace = true, features = ["transport", "tls-ring"] }
+tonic-prost = { workspace = true }
+hostname = "0.4"
 anyhow = { workspace = true }
