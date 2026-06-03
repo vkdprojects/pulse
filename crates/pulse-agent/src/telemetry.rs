@@ -5,28 +5,47 @@ use pulse_proto::pb::{
 use std::path::Path;
 use tokio::fs;
 
+static CPU_PREV: std::sync::LazyLock<StdMutex<Vec<u64>>> = std::sync::LazyLock::new(|| StdMutex::new(Vec::new()));
+
 pub async fn collect_cpu() -> Result<CpuMetrics> {
     let stat = fs::read_to_string("/proc/stat").await?;
     let mut usage_per_core = Vec::new();
     let mut total_bp = 0u32;
 
-    for line in stat.lines() {
-        if line.starts_with("cpu") {
-            let parts: Vec<u64> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
-            if parts.len() < 4 {
-                continue;
-            }
-            let idle = parts[3];
-            let total: u64 = parts.iter().sum();
-            let busy_bp = if total > 0 { ((total - idle) * 10_000 / total) as u32 } else { 0 };
+    // Parse and compute deltas (lock scope limited, no await inside)
+    {
+        let mut prev = CPU_PREV.lock().unwrap();
+        let mut current_totals: Vec<u64> = Vec::new();
+        let mut core_idx = 0usize;
 
-            if line.starts_with("cpu ") {
-                total_bp = busy_bp;
-            } else {
-                usage_per_core.push(busy_bp);
+        for line in stat.lines() {
+            if line.starts_with("cpu") {
+                let parts: Vec<u64> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
+                if parts.len() < 4 {
+                    continue;
+                }
+                let idle = parts[3];
+                let total: u64 = parts.iter().sum();
+                current_totals.push(total);
+                current_totals.push(idle);
+
+                let (prev_total, prev_idle) =
+                    if prev.len() > core_idx * 2 + 1 { (prev[core_idx * 2], prev[core_idx * 2 + 1]) } else { (0, 0) };
+
+                let dt = total.saturating_sub(prev_total);
+                let di = idle.saturating_sub(prev_idle);
+                let busy_bp = if dt > 0 { ((dt - di) * 10_000 / dt) as u32 } else { 0 };
+
+                if line.starts_with("cpu ") {
+                    total_bp = busy_bp;
+                } else {
+                    usage_per_core.push(busy_bp);
+                }
+                core_idx += 1;
             }
         }
-    }
+        *prev = current_totals;
+    } // lock dropped here
 
     let loadavg = fs::read_to_string("/proc/loadavg").await.unwrap_or_default();
     let loads: Vec<u32> =
@@ -448,10 +467,14 @@ mod tests {
     #[tokio::test]
     async fn test_collect_cpu_on_linux() {
         if !Path::new("/proc/stat").exists() {
-            return; // Skip on non-Linux
+            return;
         }
+        // First call: may be 0 (no previous baseline)
+        let _first = collect_cpu().await.unwrap();
+        // Second call: should have real delta
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let cpu = collect_cpu().await.unwrap();
-        assert!(cpu.usage_total_bp <= 10_000);
+        assert!(cpu.usage_total_bp <= 10_000, "CPU bp should be 0-10000, got {}", cpu.usage_total_bp);
         assert!(!cpu.usage_per_core_bp.is_empty());
     }
 
@@ -461,18 +484,31 @@ mod tests {
             return;
         }
         let mem = collect_memory().await.unwrap();
-        assert!(mem.total_bytes > 0);
-        assert!(mem.available_bytes <= mem.total_bytes);
+        assert!(mem.total_bytes > 0, "total must be > 0");
+        assert!(mem.available_bytes <= mem.total_bytes, "available must be <= total");
+        assert!(mem.used_bytes <= mem.total_bytes, "used must be <= total");
     }
 
     #[tokio::test]
-    async fn test_collect_net_on_linux() {
+    async fn test_collect_net_delta_on_linux() {
         if !Path::new("/proc/net/dev").exists() {
             return;
         }
-        let net = collect_net().await.unwrap();
-        // At minimum should not error, may have 0 interfaces besides lo
-        let _ = net;
+        // First call: sets baseline, returns 0 deltas
+        let first = collect_net().await.unwrap();
+        for iface in &first {
+            assert_eq!(iface.rx_bytes_sec, 0, "first reading should be 0 delta");
+            assert_eq!(iface.tx_bytes_sec, 0, "first reading should be 0 delta");
+        }
+
+        // Second call: returns actual delta (may still be 0 if no traffic)
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let second = collect_net().await.unwrap();
+        for iface in &second {
+            // Delta should be reasonable (< 1GB per interval), not cumulative
+            assert!(iface.rx_bytes_sec < 1_000_000_000, "rx delta too high (cumulative bug?): {}", iface.rx_bytes_sec);
+            assert!(iface.tx_bytes_sec < 1_000_000_000, "tx delta too high (cumulative bug?): {}", iface.tx_bytes_sec);
+        }
     }
 
     #[tokio::test]

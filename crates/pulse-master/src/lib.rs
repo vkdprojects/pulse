@@ -10,13 +10,8 @@ use ca::CaBundle;
 pub fn gen_dev_certs(output_dir: &str) -> Result<()> {
     let ca = CaBundle::new()?;
 
-    let mut sans: Vec<String> = vec![
-        "localhost".into(),
-        "::1".into(),
-        "127.0.0.1".into(),
-        "master".into(),
-        "pulse-master".into(),
-    ];
+    let mut sans: Vec<String> =
+        vec!["localhost".into(), "::1".into(), "127.0.0.1".into(), "master".into(), "pulse-master".into()];
     if let Ok(extra) = std::env::var("PULSE_EXTRA_SAN") {
         for s in extra.split(',') {
             let s = s.trim();
