@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod ca;
 pub mod service;
 pub mod storage;

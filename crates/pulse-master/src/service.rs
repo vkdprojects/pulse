@@ -1,3 +1,4 @@
+use crate::alerts::AlertEngine;
 use crate::ca::CaBundle;
 use crate::storage::Storage;
 use pulse_proto::pb::{
@@ -18,6 +19,7 @@ pub struct PulseService {
     cmd_tx: Arc<tokio::sync::Mutex<Option<mpsc::Sender<CommandRequest>>>>,
     storage: Option<Storage>,
     ca: Option<Arc<CaBundle>>,
+    alerts: AlertEngine,
 }
 
 impl Default for PulseService {
@@ -28,7 +30,13 @@ impl Default for PulseService {
 
 impl PulseService {
     pub fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), cmd_tx: Arc::new(tokio::sync::Mutex::new(None)), storage: None, ca: None }
+        Self {
+            next_id: AtomicU64::new(1),
+            cmd_tx: Arc::new(tokio::sync::Mutex::new(None)),
+            storage: None,
+            ca: None,
+            alerts: AlertEngine::new(),
+        }
     }
 
     pub fn with_storage(mut self, storage: Storage) -> Self {
@@ -78,6 +86,7 @@ impl PulseAgent for PulseService {
 
         while let Some(payload) = stream.message().await? {
             count += 1;
+            self.alerts.check(&payload).await;
             if let Some(ref db) = self.storage
                 && let Err(e) = db.insert_metrics(&payload).await
             {

@@ -85,3 +85,37 @@ END $$;
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_metrics_agent_time ON metrics (agent_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_net_agent_time ON net_metrics (agent_id, time DESC);
+
+-- Container metrics
+CREATE TABLE IF NOT EXISTS container_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    container_id TEXT NOT NULL,
+    container_name TEXT NOT NULL,
+    image TEXT,
+    state TEXT,
+    cpu_bp INTEGER,
+    mem_usage BIGINT,
+    mem_limit BIGINT,
+    net_rx_bytes BIGINT,
+    net_tx_bytes BIGINT
+);
+
+SELECT create_hypertable('container_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE container_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,container_id'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('container_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('container_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_container_agent_time ON container_metrics (agent_id, time DESC);

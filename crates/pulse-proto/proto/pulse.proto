@@ -17,6 +17,7 @@ message MetricsPayload {
   repeated DiskMetrics disks = 5;
   repeated NetMetrics net = 6;
   SystemMetrics system = 7;
+  repeated ContainerMetrics containers = 8;
 }
 
 message CpuMetrics {
@@ -59,6 +60,18 @@ message SystemMetrics {
   uint64 uptime_secs = 1;
   uint32 processes_total = 2;
   uint32 processes_running = 3;
+}
+
+message ContainerMetrics {
+  string id = 1;
+  string name = 2;
+  string image = 3;
+  string state = 4;
+  uint32 cpu_bp = 5;
+  uint64 mem_usage = 6;
+  uint64 mem_limit = 7;
+  uint64 net_rx_bytes = 8;
+  uint64 net_tx_bytes = 9;
 }
 
 message MetricsAck {

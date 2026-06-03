@@ -1,0 +1,97 @@
+{
+  "title": "Vixpi Pulse - Infrastructure",
+  "uid": "vixpi-pulse",
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "agent",
+        "type": "query",
+        "query": "SELECT id FROM agents ORDER BY id",
+        "datasource": "TimescaleDB",
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "CPU Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id, cpu_total_bp / 100.0 AS cpu_pct FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "title": "Memory Used (MB)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id, mem_used / 1048576 AS mem_mb FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+    },
+    {
+      "title": "Load Average (1m)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id, load_1m / 100.0 AS load FROM metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "title": "Network Traffic (bytes/interval)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || '/' || interface AS metric, rx_bytes, tx_bytes FROM net_metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "title": "Container Memory",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || '/' || container_name AS container, mem_usage / 1048576 AS mem_mb FROM container_metrics WHERE agent_id IN ($agent) AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+    },
+    {
+      "title": "Agents Inventory",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT id, hostname, os, arch, agent_version, last_seen_at FROM agents ORDER BY last_seen_at DESC",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

@@ -121,6 +121,27 @@ impl Storage {
             .await?;
         }
 
+        // Container metrics
+        for ctr in &payload.containers {
+            sqlx::query(
+                "INSERT INTO container_metrics (time, agent_id, container_id, container_name, image, state, cpu_bp, mem_usage, mem_limit, net_rx_bytes, net_tx_bytes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            )
+            .bind(time)
+            .bind(&payload.agent_id)
+            .bind(&ctr.id)
+            .bind(&ctr.name)
+            .bind(&ctr.image)
+            .bind(&ctr.state)
+            .bind(ctr.cpu_bp as i32)
+            .bind(ctr.mem_usage as i64)
+            .bind(ctr.mem_limit as i64)
+            .bind(ctr.net_rx_bytes as i64)
+            .bind(ctr.net_tx_bytes as i64)
+            .execute(&self.pool)
+            .await?;
+        }
+
         // Update last_seen
         sqlx::query("UPDATE agents SET last_seen_at = NOW() WHERE id = $1")
             .bind(&payload.agent_id)
