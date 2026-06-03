@@ -21,19 +21,21 @@ pub async fn collect_cpu() -> Result<CpuMetrics> {
         for line in stat.lines() {
             if line.starts_with("cpu") {
                 let parts: Vec<u64> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
-                if parts.len() < 4 {
+                if parts.len() < 5 {
                     continue;
                 }
-                let idle = parts[3];
+                // fields: user nice system idle iowait [irq softirq steal guest guest_nice]
+                // idle_all = idle + iowait (iowait is time waiting for I/O, CPU not busy)
+                let idle_all = parts[3] + parts.get(4).copied().unwrap_or(0);
                 let total: u64 = parts.iter().sum();
                 current_totals.push(total);
-                current_totals.push(idle);
+                current_totals.push(idle_all);
 
                 let (prev_total, prev_idle) =
                     if prev.len() > core_idx * 2 + 1 { (prev[core_idx * 2], prev[core_idx * 2 + 1]) } else { (0, 0) };
 
                 let dt = total.saturating_sub(prev_total);
-                let di = idle.saturating_sub(prev_idle);
+                let di = idle_all.saturating_sub(prev_idle);
                 let busy_bp = if dt > 0 { ((dt - di) * 10_000 / dt) as u32 } else { 0 };
 
                 if line.starts_with("cpu ") {
@@ -329,13 +331,14 @@ pub async fn collect_top_processes() -> Result<Vec<ProcessInfo>> {
         }
         let comm = stat[comm_start + 1..comm_end].to_string();
         let rest: Vec<&str> = stat[comm_end + 2..].split_whitespace().collect();
-        if rest.len() < 22 {
+        if rest.len() < 23 {
             continue;
         }
 
+        // After (comm): state(0) ppid(1) ... utime(11) stime(12) ... vsize(21) rss(22)
         let utime: u64 = rest[11].parse().unwrap_or(0);
         let stime: u64 = rest[12].parse().unwrap_or(0);
-        let rss_pages: u64 = rest[21].parse().unwrap_or(0);
+        let rss_pages: u64 = rest[22].parse().unwrap_or(0);
 
         procs.push((pid, comm, utime + stime, rss_pages * 4096));
     }
