@@ -23,19 +23,17 @@ async fn main() -> Result<()> {
 }
 
 async fn run_agent(config: Config) -> Result<()> {
-    let mut backoff = Duration::from_secs(1);
-    let max_backoff = Duration::from_secs(60);
+    let mut backoff_secs = 1u64;
 
     loop {
-        match connect_and_stream(&config).await {
-            Ok(()) => {
-                info!("connection closed gracefully");
-                return Ok(());
-            }
+        let result = connect_and_stream(&config).await;
+        match result {
+            Ok(()) => return Ok(()),
             Err(e) => {
-                error!(error = %e, "connection failed, retrying in {:?}", backoff);
+                let backoff = Duration::from_secs(backoff_secs);
+                error!(error = %e, ?backoff, "connection lost, reconnecting");
                 sleep(backoff).await;
-                backoff = (backoff * 2).min(max_backoff);
+                backoff_secs = (backoff_secs * 2).min(60);
             }
         }
     }

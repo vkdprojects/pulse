@@ -10,7 +10,11 @@ pub struct Storage {
 
 impl Storage {
     pub async fn connect(url: &str) -> Result<Self> {
-        let pool = PgPool::connect(url).await?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(20)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect(url)
+            .await?;
         Ok(Self { pool })
     }
 

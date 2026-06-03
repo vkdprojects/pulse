@@ -1,0 +1,3 @@
+[advisories]
+# rsa vuln via sqlx-mysql — we only use postgres, mysql driver never loaded at runtime
+ignore = ["RUSTSEC-2023-0071"]
