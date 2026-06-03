@@ -66,17 +66,32 @@ pub async fn collect_memory() -> Result<MemoryMetrics> {
         available = free;
     }
 
+    // ZFS ARC: reclaimable memory counted as "used" but is actually free
+    let arc_size = read_zfs_arc_size().await;
+    let used = total.saturating_sub(available).saturating_sub(arc_size);
+
     let (cgroup_limit, cgroup_usage) = collect_cgroup_memory().await;
 
     Ok(MemoryMetrics {
         total_bytes: total,
-        used_bytes: total.saturating_sub(available),
-        available_bytes: available,
+        used_bytes: used,
+        available_bytes: available + arc_size,
         swap_total_bytes: swap_total,
         swap_used_bytes: swap_total.saturating_sub(swap_free),
         cgroup_limit_bytes: cgroup_limit,
         cgroup_usage_bytes: cgroup_usage,
     })
+}
+
+async fn read_zfs_arc_size() -> u64 {
+    let Ok(content) = fs::read_to_string("/proc/spl/kstat/zfs/arcstats").await else { return 0 };
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.first() == Some(&"size") && parts.len() >= 3 {
+            return parts[2].parse().unwrap_or(0);
+        }
+    }
+    0
 }
 
 async fn collect_cgroup_memory() -> (u64, u64) {
@@ -377,6 +392,11 @@ async fn read_hwmon_temp(hwmon_dir: &Path) -> u32 {
     let Some(Ok(entry)) = entries.next_entry().await.transpose() else { return 0 };
     let temp_file = entry.path().join("temp1_input");
     fs::read_to_string(&temp_file).await.ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0) / 1000
+}
+
+pub async fn collect_battery() -> u32 {
+    let path = Path::new("/sys/class/power_supply/BAT0/capacity");
+    fs::read_to_string(path).await.ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
 
 #[cfg(test)]

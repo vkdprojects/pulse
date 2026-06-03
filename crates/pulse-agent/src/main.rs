@@ -179,6 +179,7 @@ async fn collect_snapshot(agent_id: &str) -> Result<MetricsPayload> {
         temperatures: temps.unwrap_or_default(),
         gpus: gpus.unwrap_or_default(),
         disk_health: dhealth.unwrap_or_default(),
+        battery_pct: telemetry::collect_battery().await,
     })
 }
 

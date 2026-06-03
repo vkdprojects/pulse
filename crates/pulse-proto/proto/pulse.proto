@@ -23,6 +23,7 @@ message MetricsPayload {
   repeated TemperatureMetrics temperatures = 11;
   repeated GpuMetrics gpus = 12;
   repeated DiskHealth disk_health = 13;
+  uint32 battery_pct = 14;
 }
 
 message CpuMetrics {

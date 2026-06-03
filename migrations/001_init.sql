@@ -120,3 +120,26 @@ EXCEPTION WHEN others THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_container_agent_time ON container_metrics (agent_id, time DESC);
+
+-- Continuous aggregates: pre-compute hourly rollups for dashboards
+DO $$ BEGIN
+  CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_hourly
+  WITH (timescaledb.continuous) AS
+  SELECT time_bucket('1 hour', time) AS bucket,
+         agent_id,
+         avg(cpu_total_bp) AS avg_cpu_bp,
+         max(cpu_total_bp) AS max_cpu_bp,
+         avg(mem_used) AS avg_mem_used,
+         max(mem_used) AS max_mem_used
+  FROM metrics
+  GROUP BY bucket, agent_id;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_continuous_aggregate_policy('metrics_hourly',
+    start_offset => INTERVAL '3 hours',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour');
+EXCEPTION WHEN others THEN NULL;
+END $$;

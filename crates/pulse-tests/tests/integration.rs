@@ -76,6 +76,7 @@ async fn test_stream_metrics_plain() {
             temperatures: vec![],
             gpus: vec![],
             disk_health: vec![],
+            battery_pct: 0,
         },
         MetricsPayload {
             timestamp_ms: 11000,
@@ -91,6 +92,7 @@ async fn test_stream_metrics_plain() {
             temperatures: vec![],
             gpus: vec![],
             disk_health: vec![],
+            battery_pct: 0,
         },
     ];
 
