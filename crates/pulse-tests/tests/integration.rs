@@ -242,3 +242,69 @@ async fn test_mtls_rejects_wrong_ca() {
         assert!(resp.is_err(), "mTLS should reject cert signed by wrong CA");
     }
 }
+
+#[tokio::test]
+async fn test_register_returns_certs_when_ca_configured() {
+    let ca = CaBundle::new().unwrap();
+
+    let listener = TcpListener::bind("[::1]:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}");
+
+    tokio::spawn(async move {
+        let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
+        Server::builder()
+            .add_service(PulseService::new().with_ca(ca).into_server())
+            .serve_with_incoming(incoming)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let mut client = PulseAgentClient::connect(url).await.unwrap();
+    let resp = client
+        .register(RegisterRequest {
+            hostname: "provisioned-host".into(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            agent_version: "0.1.0".into(),
+            labels: vec![],
+        })
+        .await
+        .unwrap();
+
+    let r = resp.into_inner();
+    assert!(r.agent_id.starts_with("agent-"));
+    assert!(!r.ca_cert.is_empty(), "should return CA cert");
+    assert!(!r.client_cert.is_empty(), "should return client cert");
+    assert!(!r.client_key.is_empty(), "should return client key");
+
+    // Verify the cert is valid PEM
+    let cert_str = String::from_utf8(r.client_cert).unwrap();
+    assert!(cert_str.contains("BEGIN CERTIFICATE"));
+    let key_str = String::from_utf8(r.client_key).unwrap();
+    assert!(key_str.contains("BEGIN PRIVATE KEY"));
+}
+
+#[tokio::test]
+async fn test_register_returns_empty_certs_without_ca() {
+    let url = spawn_server_plain().await;
+    let mut client = PulseAgentClient::connect(url).await.unwrap();
+
+    let resp = client
+        .register(RegisterRequest {
+            hostname: "no-ca-host".into(),
+            os: "linux".into(),
+            arch: "x86_64".into(),
+            agent_version: "0.1.0".into(),
+            labels: vec![],
+        })
+        .await
+        .unwrap();
+
+    let r = resp.into_inner();
+    assert!(r.ca_cert.is_empty(), "no CA = no certs");
+    assert!(r.client_cert.is_empty());
+    assert!(r.client_key.is_empty());
+}
