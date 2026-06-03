@@ -188,4 +188,4 @@ crates/
 
 ---
 
-**MIT License** · Made with 🦀 by GCN Soluções
+**MIT License** · Made with ❤️ by GCN Soluções
