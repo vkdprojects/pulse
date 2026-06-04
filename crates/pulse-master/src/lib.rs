@@ -27,6 +27,7 @@ pub fn gen_dev_certs(output_dir: &str) -> Result<()> {
 
     std::fs::create_dir_all(output_dir)?;
     std::fs::write(format!("{output_dir}/ca.pem"), &ca.ca_cert_pem)?;
+    std::fs::write(format!("{output_dir}/ca-key.pem"), ca.ca_key_pem())?;
     std::fs::write(format!("{output_dir}/server.pem"), &server.cert_pem)?;
     std::fs::write(format!("{output_dir}/server-key.pem"), &server.key_pem)?;
     std::fs::write(format!("{output_dir}/client.pem"), &client.cert_pem)?;

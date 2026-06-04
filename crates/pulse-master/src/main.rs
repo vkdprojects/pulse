@@ -103,7 +103,8 @@ async fn main() -> Result<()> {
 
     // Load or create CA for auto-provisioning
     if tls_enabled {
-        let ca = pulse_master::ca::CaBundle::new().map_err(|e| anyhow::anyhow!("CA init failed: {e}"))?;
+        let ca =
+            pulse_master::ca::CaBundle::load_or_create(&tls_dir).map_err(|e| anyhow::anyhow!("CA init failed: {e}"))?;
         info!("CA initialized for agent auto-provisioning");
         service = service.with_ca(ca);
     }

@@ -16,6 +16,36 @@ pub struct IssuedCert {
 }
 
 impl CaBundle {
+    /// Load existing CA from directory, or generate new one
+    pub fn load_or_create(dir: &str) -> anyhow::Result<Self> {
+        let ca_pem_path = format!("{dir}/ca.pem");
+        let ca_key_path = format!("{dir}/ca-key.pem");
+
+        if std::path::Path::new(&ca_pem_path).exists() && std::path::Path::new(&ca_key_path).exists() {
+            let ca_pem = std::fs::read_to_string(&ca_pem_path)?;
+            let ca_key_pem = std::fs::read_to_string(&ca_key_path)?;
+            let key_pair = KeyPair::from_pem(&ca_key_pem)?;
+
+            let mut params = CertificateParams::default();
+            params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+            params.key_usages.push(KeyUsagePurpose::KeyCertSign);
+            params.key_usages.push(KeyUsagePurpose::CrlSign);
+            let mut dn = DistinguishedName::new();
+            dn.push(DnType::CommonName, "Vixpi Pulse CA");
+            dn.push(DnType::OrganizationName, "GCN Solucoes");
+            params.distinguished_name = dn;
+
+            let ca_cert_der = CertificateDer::from(pem_to_der(&ca_pem)?);
+
+            Ok(Self { ca_cert_der, ca_cert_pem: ca_pem, key_pair, params })
+        } else {
+            let bundle = Self::new()?;
+            // Save CA key for future loads
+            std::fs::write(&ca_key_path, bundle.key_pair.serialize_pem())?;
+            Ok(bundle)
+        }
+    }
+
     pub fn new() -> anyhow::Result<Self> {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -33,6 +63,10 @@ impl CaBundle {
         let ca_cert_pem = cert.pem();
 
         Ok(Self { ca_cert_der, ca_cert_pem, key_pair, params })
+    }
+
+    pub fn ca_key_pem(&self) -> String {
+        self.key_pair.serialize_pem()
     }
 
     pub fn issue_server_cert(&self, san: &[&str]) -> anyhow::Result<IssuedCert> {
@@ -66,6 +100,50 @@ impl CaBundle {
 
         Ok(IssuedCert { cert_der, cert_pem, key_der, key_pem })
     }
+}
+
+fn pem_to_der(pem: &str) -> anyhow::Result<Vec<u8>> {
+    // Simple base64 decode of PEM content (between -----BEGIN/END lines)
+    let encoded: String = pem.lines().filter(|l| !l.starts_with("-----") && !l.is_empty()).collect();
+    let mut buf = Vec::with_capacity(encoded.len());
+    // Decode base64 manually using a lookup table
+    static B64: &[u8; 128] = &{
+        let mut table = [255u8; 128];
+        let mut i = 0u8;
+        while i < 26 {
+            table[(b'A' + i) as usize] = i;
+            table[(b'a' + i) as usize] = i + 26;
+            i += 1;
+        }
+        let mut i = 0u8;
+        while i < 10 {
+            table[(b'0' + i) as usize] = i + 52;
+            i += 1;
+        }
+        table[b'+' as usize] = 62;
+        table[b'/' as usize] = 63;
+        table
+    };
+    let bytes = encoded.as_bytes();
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        let (a, b, c, d) = (
+            B64[bytes[i] as usize] as u32,
+            B64[bytes[i + 1] as usize] as u32,
+            B64[bytes[i + 2] as usize] as u32,
+            B64[bytes[i + 3] as usize] as u32,
+        );
+        let triple = (a << 18) | (b << 12) | (c << 6) | d;
+        buf.push((triple >> 16) as u8);
+        if bytes[i + 2] != b'=' {
+            buf.push((triple >> 8) as u8);
+        }
+        if bytes[i + 3] != b'=' {
+            buf.push(triple as u8);
+        }
+        i += 4;
+    }
+    Ok(buf)
 }
 
 #[cfg(test)]
