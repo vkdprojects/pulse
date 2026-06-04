@@ -36,7 +36,7 @@ pub async fn collect_cpu() -> Result<CpuMetrics> {
 
                 let dt = total.saturating_sub(prev_total);
                 let di = idle_all.saturating_sub(prev_idle);
-                let busy_bp = if dt > 0 { ((dt - di) * 10_000 / dt) as u32 } else { 0 };
+                let busy_bp = ((dt - di) * 10_000).checked_div(dt).unwrap_or(0) as u32;
 
                 if line.starts_with("cpu ") {
                     total_bp = busy_bp;
@@ -344,7 +344,7 @@ pub async fn collect_top_processes() -> Result<Vec<ProcessInfo>> {
     }
 
     // Sort by CPU time descending, take top 5
-    procs.sort_by(|a, b| b.2.cmp(&a.2));
+    procs.sort_by_key(|p| std::cmp::Reverse(p.2));
     procs.truncate(5);
 
     Ok(procs

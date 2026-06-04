@@ -22,7 +22,7 @@ pub async fn execute(req: CommandRequest, tx: mpsc::Sender<CommandResponse>) -> 
                 pulse_proto::pb::package_command::Action::Remove => "remove",
                 pulse_proto::pb::package_command::Action::Update => "update",
             };
-            let args: Vec<String> = std::iter::once(action.to_string()).chain(pkg.packages.into_iter()).collect();
+            let args: Vec<String> = std::iter::once(action.to_string()).chain(pkg.packages).collect();
             execute_command(&request_id, "apt-get", &args, "", timeout_secs, &tx).await
         }
         Some(pulse_proto::pb::command_request::Command::File(file_cmd)) => {
