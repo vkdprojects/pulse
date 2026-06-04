@@ -72,6 +72,7 @@ curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/in
 | SSH sessions | `/var/run/utmp` | user, IP, tty, pid |
 | Battery | `/sys/class/power_supply/` | % |
 | System | `/proc/uptime` | uptime + process count |
+| TCP Connections | `/proc/net/tcp{,6}` | IPs remotos por porta (netflow leve) |
 
 ---
 
@@ -112,6 +113,39 @@ PULSE_ALERT_MEM_PCT=90   # dispara se MEM > 90% por 3 leituras
 ```
 
 Auto-detecta formato: **Telegram**, **Slack**, **Discord**, ou webhook genérico.
+
+---
+
+## 🌐 REST API (16 endpoints)
+
+Base: `http://master:8080`
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /health` | Health check |
+| `GET /api/ca` | CA certificate (PEM) |
+| `GET /api/overview` | Dashboard summary (todos agents + stats) |
+| `GET /api/alerts` | Histórico de alertas |
+| `GET /api/agents` | Listar agents |
+| `GET /api/agents/:id/metrics` | Últimas 20 métricas |
+| `GET /api/agents/:id/metrics/latest` | Snapshot atual (1 leitura) |
+| `GET /api/agents/:id/disks` | Uso de disco por mountpoint |
+| `GET /api/agents/:id/network` | Tráfego por interface |
+| `GET /api/agents/:id/containers` | Docker containers |
+| `GET /api/agents/:id/processes` | Top processos |
+| `GET /api/agents/:id/gpu` | GPU stats |
+| `GET /api/agents/:id/connections` | Conexões TCP por porta (netflow) |
+| `GET /api/agents/:id/sessions` | Info do agent |
+| `DELETE /api/agents/:id` | Remover agent |
+| `POST /api/agents/:id/exec` | Executar comando remoto (em breve) |
+
+```bash
+# Exemplo: overview de todos os servidores
+curl -s http://master:8080/api/overview | jq
+
+# Exemplo: quem está acessando meu servidor na porta 22?
+curl -s http://master:8080/api/agents/agent-0001/connections | jq '.connections[] | select(.service=="ssh")'
+```
 
 ---
 

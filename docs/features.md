@@ -72,6 +72,16 @@
 | Terminal (pts/N) | Campo `ut_line` |
 | PID do sshd | Campo `ut_pid` |
 
+### Conexões TCP (Netflow leve)
+| Métrica | Detalhe |
+|---|---|
+| Porta local | Portas com conexões ESTABLISHED |
+| Serviço | Auto-detect: ssh(22), http(80), https(443), postgres(5432), mysql(3306), redis(6379), mongodb(27017) |
+| Contagem | Número de conexões ativas por porta |
+| IPs remotos | Lista de IPs únicos conectados (max 50/porta) |
+| Fonte | `/proc/net/tcp` + `/proc/net/tcp6` |
+| Filtro | Ignora localhost, só ESTABLISHED (st=01) |
+
 ---
 
 ## 🎮 Comandos Remotos
