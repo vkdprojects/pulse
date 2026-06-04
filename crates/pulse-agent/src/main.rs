@@ -1,6 +1,7 @@
 mod config;
 mod containers;
 mod telemetry;
+mod updater;
 mod worker;
 
 use anyhow::Result;
@@ -25,6 +26,23 @@ async fn main() -> Result<()> {
 }
 
 async fn run_agent(config: Config) -> Result<()> {
+    // Check if we need to rollback from a failed update
+    updater::check_rollback_needed();
+
+    // Spawn background update checker (checks every 5 minutes, runs once for lifetime)
+    let master_ep = config.master_endpoint.clone();
+    let current_ver = env!("CARGO_PKG_VERSION").to_string();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(300));
+        tick.tick().await; // skip first immediate tick
+        loop {
+            tick.tick().await;
+            if let Err(e) = updater::check_and_apply(&master_ep, &current_ver).await {
+                tracing::debug!(error = %e, "update check failed");
+            }
+        }
+    });
+
     let mut backoff_secs = 1u64;
     let mut buffer: VecDeque<MetricsPayload> = VecDeque::with_capacity(100);
 
@@ -61,6 +79,9 @@ async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayloa
     let agent_id = reg.agent_id;
     let interval = Duration::from_millis(reg.metrics_interval_ms.max(1000).into());
     info!(agent_id, ?interval, "registered with master");
+
+    // Confirm that post-update startup is healthy
+    updater::confirm_update_healthy();
 
     // Persist client certs if provisioned by master
     if !reg.client_cert.is_empty() && !reg.client_key.is_empty() && !reg.ca_cert.is_empty() {

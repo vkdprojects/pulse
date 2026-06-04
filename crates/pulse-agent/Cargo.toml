@@ -18,3 +18,4 @@ anyhow = { workspace = true }
 hostname = "0.4"
 libc = "0.2"
 ring = "0.17"
+self-replace = "1.5"

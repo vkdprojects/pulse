@@ -544,6 +544,24 @@ impl Storage {
         Ok(())
     }
 
+    pub async fn get_agent_version(&self, agent_id: &str) -> Result<String> {
+        let row: Option<(String,)> = match self {
+            Storage::Postgres(pool) => {
+                sqlx::query_as("SELECT COALESCE(agent_version,'') FROM agents WHERE id = $1")
+                    .bind(agent_id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            Storage::Sqlite(pool) => {
+                sqlx::query_as("SELECT COALESCE(agent_version,'') FROM agents WHERE id = $1")
+                    .bind(agent_id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+        };
+        Ok(row.map(|r| r.0).unwrap_or_default())
+    }
+
     pub async fn get_offline_agents(&self, timeout_secs: i64) -> Result<Vec<String>> {
         let rows: Vec<(String,)> = match self {
             Storage::Postgres(pool) => {
@@ -731,13 +749,13 @@ impl Storage {
     pub async fn get_overview_data(&self) -> Result<Vec<serde_json::Value>> {
         match self {
             Storage::Postgres(pool) => {
-                let rows: Vec<(String, String, String)> = sqlx::query_as(
-                    "SELECT id, hostname, COALESCE(status,'online') FROM agents ORDER BY registered_at DESC",
+                let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+                    "SELECT id, hostname, COALESCE(status,'online'), COALESCE(agent_version,'') FROM agents ORDER BY registered_at DESC",
                 )
                 .fetch_all(pool)
                 .await?;
                 let mut agents = Vec::with_capacity(rows.len());
-                for (id, hostname, status) in &rows {
+                for (id, hostname, status, version) in &rows {
                     let metric: Option<(Option<i32>, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
                         "SELECT cpu_total_bp, mem_used, mem_total, uptime_secs FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
                     )
@@ -756,20 +774,20 @@ impl Storage {
                         None => (None, None, None),
                     };
                     agents.push(serde_json::json!({
-                        "id": id, "hostname": hostname, "status": status,
+                        "id": id, "hostname": hostname, "status": status, "version": version,
                         "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
                     }));
                 }
                 Ok(agents)
             }
             Storage::Sqlite(pool) => {
-                let rows: Vec<(String, String, String)> = sqlx::query_as(
-                    "SELECT id, hostname, COALESCE(status,'online') FROM agents ORDER BY registered_at DESC",
+                let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+                    "SELECT id, hostname, COALESCE(status,'online'), COALESCE(agent_version,'') FROM agents ORDER BY registered_at DESC",
                 )
                 .fetch_all(pool)
                 .await?;
                 let mut agents = Vec::with_capacity(rows.len());
-                for (id, hostname, status) in &rows {
+                for (id, hostname, status, version) in &rows {
                     let metric: Option<(Option<i32>, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
                         "SELECT cpu_total_bp, mem_used, mem_total, uptime_secs FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
                     )
@@ -788,7 +806,7 @@ impl Storage {
                         None => (None, None, None),
                     };
                     agents.push(serde_json::json!({
-                        "id": id, "hostname": hostname, "status": status,
+                        "id": id, "hostname": hostname, "status": status, "version": version,
                         "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
                     }));
                 }

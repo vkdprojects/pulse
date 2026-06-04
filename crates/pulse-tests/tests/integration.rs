@@ -105,6 +105,7 @@ async fn test_stream_metrics_plain() {
     let ack = resp.into_inner();
     assert!(ack.ok);
     assert_eq!(ack.next_interval_ms, 10_000);
+    assert!(ack.update.is_none(), "no update signal when not configured");
 }
 
 #[tokio::test]

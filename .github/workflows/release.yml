@@ -11,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-x86:
+  build-linux-x86:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,25 +20,25 @@ jobs:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-x86_64
+          key: release-linux-x86_64
       - name: Install tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler
       - name: Build
         run: |
-          cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
-          cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
+          cargo build --release -p pulse-agent -p pulse-master -p pulse-cli --target x86_64-unknown-linux-musl
       - name: Package
         run: |
           mkdir -p dist-out
           cp target/x86_64-unknown-linux-musl/release/pulse-agent dist-out/pulse-agent-linux-x86_64
           cp target/x86_64-unknown-linux-musl/release/pulse-master dist-out/pulse-master-linux-x86_64
+          cp target/x86_64-unknown-linux-musl/release/pulse dist-out/pulse-linux-x86_64
           ls -lh dist-out/
       - uses: actions/upload-artifact@v4
         with:
-          name: binaries-x86_64
+          name: linux-x86_64
           path: dist-out/
 
-  build-arm64:
+  build-linux-arm64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,28 +47,55 @@ jobs:
           targets: aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-aarch64
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          key: release-linux-aarch64
+      - name: Install cross + protoc
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Build with cross
         run: |
-          cross build --release -p pulse-agent --target aarch64-unknown-linux-musl
-          cross build --release -p pulse-master --target aarch64-unknown-linux-musl
+          cross build --release -p pulse-agent -p pulse-master -p pulse-cli --target aarch64-unknown-linux-musl
       - name: Package
         run: |
           mkdir -p dist-out
           cp target/aarch64-unknown-linux-musl/release/pulse-agent dist-out/pulse-agent-linux-aarch64
           cp target/aarch64-unknown-linux-musl/release/pulse-master dist-out/pulse-master-linux-aarch64
+          cp target/aarch64-unknown-linux-musl/release/pulse dist-out/pulse-linux-aarch64
           ls -lh dist-out/
       - uses: actions/upload-artifact@v4
         with:
-          name: binaries-aarch64
+          name: linux-aarch64
+          path: dist-out/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+      - name: Install protoc
+        run: brew install protobuf
+      - name: Build (arm64 + x86_64)
+        run: |
+          cargo build --release -p pulse-cli --target aarch64-apple-darwin
+          cargo build --release -p pulse-cli --target x86_64-apple-darwin
+      - name: Package
+        run: |
+          mkdir -p dist-out
+          cp target/aarch64-apple-darwin/release/pulse dist-out/pulse-darwin-arm64
+          cp target/x86_64-apple-darwin/release/pulse dist-out/pulse-darwin-x86_64
+          ls -lh dist-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
           path: dist-out/
 
   release:
-    needs: [build-x86, build-arm64]
+    needs: [build-linux-x86, build-linux-arm64, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,3 +110,24 @@ jobs:
           files: |
             artifacts/*
             dist/install-pulse.sh
+      - name: Upload agent binaries to pulse-master
+        if: vars.PULSE_MASTER_URL != ''
+        env:
+          PULSE_MASTER_URL: ${{ vars.PULSE_MASTER_URL }}
+          PULSE_ADMIN_TOKEN: ${{ secrets.PULSE_ADMIN_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          for bin in artifacts/pulse-agent-*; do
+            ARCH=$(echo "$bin" | grep -oE '(x86_64|aarch64)')
+            echo "Uploading pulse-agent ${ARCH} ${VERSION}..."
+            curl -sf -X POST "${PULSE_MASTER_URL}/api/updates/upload" \
+              -H "Authorization: Bearer ${PULSE_ADMIN_TOKEN}" \
+              -F "version=${VERSION}" \
+              -F "arch=${ARCH}" \
+              -F "binary=@${bin}" || echo "Warning: upload failed for ${ARCH}"
+          done
+          echo "Setting target version to ${VERSION}..."
+          curl -sf -X POST "${PULSE_MASTER_URL}/api/updates/rollout" \
+            -H "Authorization: Bearer ${PULSE_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"version\":\"${VERSION}\",\"rollout_pct\":100}" || echo "Warning: rollout config failed"

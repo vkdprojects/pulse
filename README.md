@@ -32,6 +32,49 @@ curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/in
 
 ---
 
+## 🖥️ Pulse TUI — Dashboard no Terminal
+
+```bash
+# Instala na sua máquina (macOS / Linux, sem sudo)
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=cli sh -
+
+# Conecta ao master
+pulse http://master:8080
+```
+
+```
+⚡ Pulse Fleet                                    ↻ 5s │ 4 agents │ 4 online
+────────────────────────────────────────────────────────────────────────────────
+ ● UP │ web-prod-01     │ CPU 23% │ MEM 67% │ ↑12d 4h │ v0.3.0
+ ● UP │ db-master       │ CPU 12% │ MEM 89% │ ↑ 5d 1h │ v0.3.0
+ ○ DN │ worker-03       │ —       │ —       │ offline │ v0.2.0
+ ● UP │ cache-01        │ CPU  3% │ MEM 34% │ ↑42d 7h │ v0.3.0
+────────────────────────────────────────────────────────────────────────────────
+ [j/k] navigate  [Enter] detail  [/] filter  [u] update  [e] exec  [q] quit
+```
+
+Binário de **1.7 MB**. Roda em qualquer terminal. Atualização em tempo real a cada 5s.
+
+---
+
+## 🔄 Auto-Update — Zero SSH para atualizar agents
+
+```bash
+# Push tag → CI compila → agents se atualizam sozinhos
+git tag v0.4.0 && git push --tags
+
+# Ou manualmente: upload + rollout
+curl -X POST http://master:8080/api/updates/upload -H "Authorization: Bearer $TOKEN" -F "version=v0.4.0" -F "arch=x86_64" -F "binary=@pulse-agent"
+curl -X POST http://master:8080/api/updates/rollout -H "Authorization: Bearer $TOKEN" -d '{"version":"v0.4.0","rollout_pct":100}'
+```
+
+- Agents verificam a cada 5 min, baixam do master, verificam SHA256
+- Rollout gradual (10% → 50% → 100%)
+- Rollback automático se o novo binário crashar 3x
+- Zero GitHub tokens nos agents — tudo pelo master
+
+---
+
 ## 🏆 vs Concorrência
 
 | | **Vixpi Pulse** | Beszel | Netdata | Telegraf | Zabbix Agent |
@@ -44,6 +87,8 @@ curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/in
 | **File ops remoto** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Package mgmt** | ✅ apt | ❌ | ❌ | ❌ | ❌ |
 | **mTLS automático** | ✅ zero-config | SSH | HTTPS | manual | manual |
+| **Auto-update** | ✅ gradual rollout | cron | kickstart.sh | ❌ | ❌ |
+| **TUI nativa** | ✅ 1.7 MB | ❌ | ❌ | ❌ | ❌ |
 | **Docker stats** | ✅ | ✅ | ✅ | plugin | plugin |
 | **GPU (nvidia)** | ✅ | ✅ | ✅ | plugin | ❌ |
 | **Cgroup aware** | ✅ v1+v2 | ❌ | ✅ | ❌ | ❌ |
@@ -116,7 +161,7 @@ Auto-detecta formato: **Telegram**, **Slack**, **Discord**, ou webhook genérico
 
 ---
 
-## 🌐 REST API (16 endpoints)
+## 🌐 REST API (21 endpoints)
 
 Base: `http://master:8080`
 
@@ -136,8 +181,15 @@ Base: `http://master:8080`
 | `GET /api/agents/:id/gpu` | GPU stats |
 | `GET /api/agents/:id/connections` | Conexões TCP por porta (netflow) |
 | `GET /api/agents/:id/sessions` | Info do agent |
-| `DELETE /api/agents/:id` | Remover agent |
-| `POST /api/agents/:id/exec` | Executar comando remoto (em breve) |
+| `DELETE /api/agents/:id` | Remover agent 🔒 |
+| `POST /api/agents/:id/exec` | Executar comando 🔒 |
+| `GET /api/updates/check` | Verifica update disponível |
+| `GET /api/updates/download` | Download do binário |
+| `POST /api/updates/upload` | Upload de binário (CI) 🔒 |
+| `GET /api/updates/rollout` | Ver config de rollout |
+| `POST /api/updates/rollout` | Setar target version 🔒 |
+
+🔒 = requer `Authorization: Bearer PULSE_ADMIN_TOKEN`
 
 ```bash
 # Exemplo: overview de todos os servidores
@@ -251,14 +303,15 @@ rm -rf /var/lib/pulse /etc/pulse
 
 | Métrica | Valor |
 |---|---|
-| Binário agent | **1.9 MB** |
-| Binário master | **~4 MB** |
+| Binário agent | **3.1 MB** |
+| Binário master | **~5.8 MB** |
+| Binário CLI (TUI) | **1.7 MB** |
 | RAM idle (agent) | **2-5 MB** |
 | RAM idle (master) | **~5 MB** |
 | Dependências externas | **0** |
 | Tempo de install | **< 5 segundos** |
 | Tempo até primeiro dado | **~1s após boot** |
-| Testes automatizados | 27 |
+| Testes automatizados | 51 |
 | Vulnerabilidades | 0 |
 | Unsafe code | 0 |
 
@@ -269,18 +322,26 @@ rm -rf /var/lib/pulse /etc/pulse
 ```
 crates/
 ├── pulse-proto/      # Protobuf (gRPC contracts)
-├── pulse-agent/      # O daemon (1.9 MB)
+├── pulse-agent/      # O daemon (3.1 MB)
 │   ├── main.rs       # connect → register → stream (reconnect + backoff)
 │   ├── config.rs     # TOML config
 │   ├── telemetry.rs  # /proc + cgroup + statvfs + nvidia-smi
 │   ├── containers.rs # Docker stats via cgroup
-│   └── worker.rs     # exec/package/file/log-tail
-├── pulse-master/     # Servidor central (~4 MB)
+│   ├── worker.rs     # exec/package/file/log-tail
+│   └── updater.rs    # auto-update (check + download + self-replace + rollback)
+├── pulse-master/     # Servidor central (~5.8 MB)
 │   ├── service.rs    # gRPC + auto-provisioning
 │   ├── storage.rs    # SQLite (default) ou Postgres (via DATABASE_URL)
 │   ├── alerts.rs     # Threshold → webhook
 │   ├── api.rs        # REST API (axum)
+│   ├── auth.rs       # Bearer token middleware (PULSE_ADMIN_TOKEN)
+│   ├── updates.rs    # Binary server + rollout (auto-update)
 │   └── ca.rs         # X.509 CA (rcgen)
+├── pulse-cli/        # TUI interativa (1.7 MB, bin: "pulse")
+│   ├── app.rs        # State + navigation + key handling
+│   ├── client.rs     # REST client (reqwest)
+│   ├── event.rs      # Async event stream (crossterm + tokio)
+│   └── ui.rs         # ratatui rendering (fleet, detail, update, exec)
 └── pulse-tests/      # Integration tests
 ```
 

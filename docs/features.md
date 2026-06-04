@@ -151,6 +151,34 @@ Streaming de logs em tempo real.
 
 ---
 
+## 🔄 Auto-Update
+
+### Fluxo
+1. CI compila e faz upload de binários ao master (`POST /api/updates/upload`)
+2. Master serve binários + controla rollout
+3. Agents verificam a cada 5 minutos (`GET /api/updates/check`)
+4. Download + SHA256 verify + atomic self-replace + restart via systemd
+
+### Rollout gradual
+| Config | Descrição |
+|---|---|
+| `rollout_pct = 100` | Todos os agents (default) |
+| `rollout_pct = 10` | 10% primeiro (canary) |
+| `urgent = true` | Sem jitter, update imediato |
+
+### Rollback automático
+- Agent salva `.prev` antes de substituir
+- Marker file conta tentativas de boot
+- 3 crashes → restaura binário anterior automaticamente
+
+### Segurança
+- SHA256 verificado antes de aplicar
+- Path sanitizado (sem traversal)
+- Binários servidos pelo master (agents não precisam de GitHub)
+- Upload protegido por `PULSE_ADMIN_TOKEN`
+
+---
+
 ## 💾 Persistência
 
 ### SQLite (default)

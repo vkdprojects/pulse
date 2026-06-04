@@ -6,13 +6,14 @@ set -eu
 #
 # Master: curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
 # Agent:  curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | PULSE_MASTER=https://IP:50051 sudo sh -
+# CLI:    curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=cli sh -
 #
 # Config via env vars:
 #   PULSE_MASTER      - Master URL (if set → installs agent, if unset → installs master)
 #   PULSE_TOKEN       - Register token for agent auth
 #   VERSION           - Specific version (default: latest)
 #   GITHUB_TOKEN      - For private repos
-#   INSTALL_COMPONENT - Force: "agent" or "master" (auto-detected if not set)
+#   INSTALL_COMPONENT - Force: "agent", "master", or "cli" (auto-detected if not set)
 # ═══════════════════════════════════════════════════════════════════
 
 GITHUB_REPO="${GITHUB_REPO:-gcnsolucoes/vixpi-pulse}"
@@ -56,6 +57,22 @@ detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)  echo "x86_64" ;;
         aarch64|arm64) echo "aarch64" ;;
+        *) err "Unsupported architecture: $(uname -m)" ;;
+    esac
+}
+
+detect_os() {
+    case "$(uname -s)" in
+        Linux)  echo "linux" ;;
+        Darwin) echo "darwin" ;;
+        *) err "Unsupported OS: $(uname -s)" ;;
+    esac
+}
+
+detect_arch_darwin() {
+    case "$(uname -m)" in
+        x86_64|amd64)  echo "x86_64" ;;
+        arm64|aarch64) echo "arm64" ;;
         *) err "Unsupported architecture: $(uname -m)" ;;
     esac
 }
@@ -295,18 +312,91 @@ EOF
     echo ""
 }
 
+# ─── CLI Install ───────────────────────────────────────────────────
+
+install_cli() {
+    local os arch asset_name install_path
+
+    os=$(detect_os)
+    if [ "$os" = "darwin" ]; then
+        arch=$(detect_arch_darwin)
+        asset_name="pulse-darwin-${arch}"
+    else
+        arch=$(detect_arch)
+        asset_name="pulse-linux-${arch}"
+    fi
+
+    # Install to ~/.local/bin (no sudo needed) or /usr/local/bin (with sudo)
+    if [ "$(id -u)" = "0" ]; then
+        install_path="/usr/local/bin"
+    elif [ -d "$HOME/.local/bin" ] || mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+        install_path="$HOME/.local/bin"
+    else
+        install_path="/usr/local/bin"
+    fi
+
+    info "Baixando pulse CLI (${os}/${arch})..."
+
+    if [ -n "$GITHUB_TOKEN" ]; then
+        local release_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+        if [ "$VERSION" != "latest" ]; then
+            release_url="https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${VERSION}"
+        fi
+        local asset_id
+        asset_id=$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$release_url" | \
+            grep -B3 "\"name\": \"${asset_name}\"" | grep '"id"' | head -1 | grep -oE '[0-9]+')
+        if [ -z "$asset_id" ]; then
+            err "Asset '${asset_name}' não encontrado na release."
+        fi
+        local tmpurl="/tmp/.pulse_url_$$"
+        curl -sI -H 'Accept: application/octet-stream' -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset_id}" | \
+            awk '/^[Ll]ocation:/{gsub(/\r/,""); print $2}' > "$tmpurl"
+        wget -q -O "${install_path}/pulse" -i "$tmpurl" || curl -sfL -o "${install_path}/pulse" "$(cat "$tmpurl")" || err "Download falhou."
+        rm -f "$tmpurl"
+    else
+        local url
+        if [ "$VERSION" = "latest" ]; then
+            url="https://github.com/${GITHUB_REPO}/releases/latest/download/${asset_name}"
+        else
+            url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset_name}"
+        fi
+        curl -sfL -o "${install_path}/pulse" "$url" || err "Download falhou. Se repo privado, passe GITHUB_TOKEN."
+    fi
+
+    chmod +x "${install_path}/pulse"
+    ok "Instalado: ${install_path}/pulse ($(du -h "${install_path}/pulse" | awk '{print $1}'))"
+
+    # Check if in PATH
+    if ! echo "$PATH" | grep -q "${install_path}"; then
+        warn "Adicione ao PATH: export PATH=\"${install_path}:\$PATH\""
+    fi
+
+    echo ""
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+    printf "${GREEN}${BOLD} ✓ Pulse CLI instalado!${RESET}\n"
+    echo ""
+    echo "  Uso: pulse http://seu-master:8080"
+    echo "  Ou:  PULSE_MASTER_URL=http://master:8080 pulse"
+    echo ""
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+}
+
 # ─── Main ──────────────────────────────────────────────────────────
 
-need_root
 header
 
-ARCH=$(detect_arch)
-info "Detectado: linux/${ARCH} → instalando ${COMPONENT}"
-
-download_binary "$COMPONENT" "$ARCH"
-
-case "$COMPONENT" in
-    agent)  install_agent ;;
-    master) install_master ;;
-    *) err "Componente inválido: ${COMPONENT}" ;;
-esac
+if [ "$COMPONENT" = "cli" ]; then
+    # CLI doesn't need root — installs to ~/.local/bin
+    install_cli
+else
+    need_root
+    ARCH=$(detect_arch)
+    info "Detectado: linux/${ARCH} → instalando ${COMPONENT}"
+    download_binary "$COMPONENT" "$ARCH"
+    case "$COMPONENT" in
+        agent)  install_agent ;;
+        master) install_master ;;
+        *) err "Componente inválido: ${COMPONENT}" ;;
+    esac
+fi

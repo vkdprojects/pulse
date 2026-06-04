@@ -1,8 +1,9 @@
 use crate::alerts::AlertEngine;
 use crate::ca::CaBundle;
 use crate::storage::Storage;
+use crate::updates::UpdateState;
 use pulse_proto::pb::{
-    CommandRequest, CommandResponse, MetricsAck, MetricsPayload, RegisterRequest, RegisterResponse,
+    CommandRequest, CommandResponse, MetricsAck, MetricsPayload, RegisterRequest, RegisterResponse, UpdateSignal,
     pulse_agent_server::{PulseAgent, PulseAgentServer},
 };
 use tokio::sync::mpsc;
@@ -21,6 +22,7 @@ pub struct PulseService {
     ca: Option<Arc<CaBundle>>,
     alerts: AlertEngine,
     register_token: Option<String>,
+    update_state: Option<UpdateState>,
 }
 
 impl Default for PulseService {
@@ -38,6 +40,7 @@ impl PulseService {
             ca: None,
             alerts: AlertEngine::new(),
             register_token: std::env::var("PULSE_REGISTER_TOKEN").ok(),
+            update_state: None,
         }
     }
 
@@ -53,6 +56,11 @@ impl PulseService {
 
     pub fn with_token(mut self, token: String) -> Self {
         self.register_token = Some(token);
+        self
+    }
+
+    pub fn with_update_state(mut self, state: UpdateState) -> Self {
+        self.update_state = Some(state);
         self
     }
 
@@ -98,9 +106,11 @@ impl PulseAgent for PulseService {
     async fn stream_metrics(&self, req: Request<Streaming<MetricsPayload>>) -> Result<Response<MetricsAck>, Status> {
         let mut stream = req.into_inner();
         let mut count = 0u64;
+        let mut last_agent_id = String::new();
 
         while let Some(payload) = stream.message().await? {
             count += 1;
+            last_agent_id.clone_from(&payload.agent_id);
             self.alerts.check(&payload).await;
             if let Some(ref db) = self.storage
                 && let Err(e) = db.insert_metrics(&payload).await
@@ -119,8 +129,40 @@ impl PulseAgent for PulseService {
             }
         }
 
+        // Build update signal if applicable — look up agent version from DB
+        let update = if let Some(ref us) = self.update_state {
+            let config = us.config.read().await;
+            let agent_version = if let Some(ref db) = self.storage {
+                db.get_agent_version(&last_agent_id).await.unwrap_or_default()
+            } else {
+                String::new()
+            };
+            if us.should_signal(&last_agent_id, &agent_version, &config) {
+                config.target_version.as_ref().map(|v| {
+                    let arch = "x86_64"; // fallback; agent will use its own arch
+                    let path = us.binary_path(v, arch);
+                    let sha = path
+                        .exists()
+                        .then(|| {
+                            std::fs::read(&path).ok().map(|data| {
+                                let hash = ring::digest::digest(&ring::digest::SHA256, &data);
+                                hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>()
+                            })
+                        })
+                        .flatten()
+                        .unwrap_or_default();
+                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    UpdateSignal { version: v.clone(), sha256: sha, size_bytes: size, urgent: config.urgent }
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         info!(count, "metrics stream ended");
-        Ok(Response::new(MetricsAck { ok: true, next_interval_ms: 10_000 }))
+        Ok(Response::new(MetricsAck { ok: true, next_interval_ms: 10_000, update }))
     }
 
     type CommandChannelStream = Pin<Box<dyn Stream<Item = Result<CommandRequest, Status>> + Send>>;
