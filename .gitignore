@@ -1,5 +1,44 @@
-/target
+# ══════════════════════════════════════════════
+# Vixpi Pulse — .gitignore
+# ══════════════════════════════════════════════
+
+# ─── Rust / Cargo ──────────────────────────────
+/target/
+debug/
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+rustc-ice-*.txt
+
+# ─── TLS / Secrets ─────────────────────────────
 .certs/
+*.pem
+*.key
+!dist/install-pulse.sh
+.env
+.env.*
+register-token
+
+# ─── Data / Runtime ────────────────────────────
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ─── AI Agent Plans (double-underscore dirs) ───
+__*/
+
+# ─── OS / Editor ──────────────────────────────
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
-.env
+*~
+.vscode/
+.idea/
+*.iml
+
+# ─── Docker (volumes locais) ──────────────────
+pgdata/
