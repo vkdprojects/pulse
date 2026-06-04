@@ -53,47 +53,6 @@ curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/in
 
 ---
 
-## 🐳 Demo Mode (Docker Compose + Grafana)
-
-```bash
-# Sobe tudo: DB + Master + 3 Agents + Grafana
-docker compose up --build
-
-# Dashboard → http://localhost:3000 (user: admin, pass: pulse)
-# Métricas já aparecendo em tempo real.
-```
-
-**Validar que está funcionando (espere ~15s após subir):**
-
-```bash
-# API: ver agents conectados
-curl http://localhost:8080/api/agents
-
-# API: ver métricas do agent-0001
-curl http://localhost:8080/api/agents/agent-0001/metrics
-
-# Grafana: http://localhost:3000 (admin/pulse)
-```
-
-**Ou rode o teste automatizado:**
-
-```bash
-./tests/e2e-docker.sh
-```
-
-```
-✓ 3 agents registered in DB
-✓ Metrics persisted in TimescaleDB
-✓ CPU telemetry data present
-✓ Memory telemetry data present
-✓ mTLS connection successful
-✓ Multiple agents sending distinct metrics
-✓ TimescaleDB hypertables active
-ALL 7 CHECKS PASSED ✓
-```
-
----
-
 ## 📊 O Que Coleta
 
 | Métrica | Fonte | Nota |
@@ -110,6 +69,8 @@ ALL 7 CHECKS PASSED ✓
 | GPU | `nvidia-smi` | util%, mem, temp, power |
 | Temperature | `/sys/class/thermal/` | todas as zones |
 | Top 5 processes | `/proc/[pid]/stat` | por CPU + RSS |
+| SSH sessions | `/var/run/utmp` | user, IP, tty, pid |
+| Battery | `/sys/class/power_supply/` | % |
 | System | `/proc/uptime` | uptime + process count |
 
 ---
@@ -154,113 +115,118 @@ Auto-detecta formato: **Telegram**, **Slack**, **Discord**, ou webhook genérico
 
 ---
 
-## 🛠️ Dev Environment
-
-```bash
-just --list        # ver todos os comandos
-
-just dev-up        # sobe TimescaleDB local
-just dev-master    # master com DB + mTLS
-just dev-agent     # agent conecta
-
-just ci            # fmt + clippy + test
-just docker-test   # e2e completo no Docker
-```
-
----
-
 ## 🔄 Update / Upgrade
 
-**Master:**
+Rode o mesmo comando de instalação novamente. O script para o serviço, substitui o binário e reinicia:
 
 ```bash
-# 1. Build nova versão
-cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
+# Update master:
+curl -sfL .../install-pulse.sh | sudo sh -
 
-# 2. Substitui binário e reinicia
-scp target/x86_64-unknown-linux-musl/release/pulse-master server:/tmp/
-ssh server 'sudo systemctl stop pulse-master && sudo cp /tmp/pulse-master /usr/local/bin/ && sudo systemctl start pulse-master'
+# Update agent:
+curl -sfL .../install-pulse.sh | PULSE_MASTER=https://x:50051 sudo sh -
 ```
 
-O master roda migrations automaticamente no boot (`Storage::migrate()`). Novas tabelas são criadas com `IF NOT EXISTS` e colunas novas via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. **Não precisa rodar SQL manual.**
+Migrations rodam automaticamente no boot. Agents reconectam sozinhos.
 
-**Agent:**
-
-```bash
-# 1. Build nova versão
-cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
-
-# 2. Substitui binário e reinicia
-scp target/x86_64-unknown-linux-musl/release/pulse-agent server:/tmp/
-ssh server 'sudo systemctl stop pulse-agent && sudo cp /tmp/pulse-agent /usr/local/bin/ && sudo systemctl start pulse-agent'
-```
-
-O agent reconecta automaticamente com backoff exponencial. Não precisa de coordenação com o master — atualize em qualquer ordem.
-
-**Docker:**
-
-```bash
-docker compose pull   # ou rebuild se custom
-docker compose up -d --build
-```
-
-Migrations rodam no boot do master. Agents reconectam sozinhos.
-
-**Ordem recomendada:** master primeiro (para ter o schema novo antes de receber dados novos), depois agents. Mas funciona em qualquer ordem — campos novos do agent são ignorados silenciosamente pelo master antigo, e o master novo aceita payloads de agents antigos (campos opcionais no proto).
-
----
-
-## 📦 Deploy em Produção
-
-### Master (one-liner)
-
-```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  INSTALL_COMPONENT=master \
-  PULSE_DB_URL="postgres://pulse:senha@localhost:5432/pulse" \
-  sudo sh -
-```
-
-Isso faz tudo: baixa o binário (~3 MB), gera certs mTLS, cria systemd service, inicia.
-
-> **Pré-requisito:** TimescaleDB rodando. Para instalar rápido:
-> `docker run -d --name tsdb -p 5432:5432 -e POSTGRES_PASSWORD=senha -e POSTGRES_USER=pulse -e POSTGRES_DB=pulse timescale/timescaledb:latest-pg17`
-
-### Agent (one-liner)
-
-```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  PULSE_MASTER="https://SEU-MASTER:50051" \
-  PULSE_TOKEN="seu-token" \
-  sudo sh -
-```
-
-**1.9 MB baixado → rodando em <5 segundos.** Detecta x86_64 ou aarch64 automaticamente.
-
-### Repositório privado
-
-Se o repo é privado, passe um GitHub token com acesso a releases:
-
-```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  GITHUB_TOKEN="ghp_xxxxx" \
-  PULSE_MASTER="https://master:50051" \
-  sudo sh -
-```
-
-### Versão específica
-
+**Versão específica:**
 ```bash
 VERSION=v0.2.0 curl -sfL .../install-pulse.sh | sudo sh -
 ```
 
-### Gerenciamento
+---
+
+## 📦 Scaling (100+ agents)
+
+Por default o master usa **SQLite embedded** (zero config, ~2 MB RAM). Para escalar:
 
 ```bash
-systemctl status pulse-agent    # ver status
-journalctl -u pulse-agent -f    # logs em tempo real
-systemctl restart pulse-agent   # reiniciar
+# Adicione TimescaleDB quando precisar:
+systemctl stop pulse-master
+
+# Edite o service pra adicionar DATABASE_URL:
+systemctl edit pulse-master
+# [Service]
+# Environment=DATABASE_URL=postgres://pulse:senha@localhost:5432/pulse
+
+systemctl start pulse-master
+# Master detecta postgres:// → usa TimescaleDB com hypertables, compression, etc.
 ```
+
+Com TimescaleDB você ganha: compression 90%+, continuous aggregates, Grafana nativo, retenção configurável.
+
+---
+
+## 🐳 Demo Mode (Docker Compose + Grafana)
+
+```bash
+# Sobe tudo: DB + Master + 3 Agents + Grafana
+docker compose up --build
+
+# Dashboard → http://localhost:3000 (user: admin, pass: pulse)
+```
+
+Útil para: demo rápida, desenvolvimento local, ou se quiser Grafana com dashboards prontos.
+
+---
+
+## 🛠️ Dev Environment
+
+```bash
+# Pré-requisitos: Rust 1.88+, protoc
+brew install protobuf just   # macOS
+
+# Build
+cargo build --workspace
+
+# Rodar master (SQLite, zero config):
+cargo run -p pulse-master
+
+# Rodar agent:
+cargo run -p pulse-agent -- .certs/agent.toml
+
+# Quality checks:
+just ci   # fmt + clippy + test
+```
+
+---
+
+## 📁 Gerenciamento
+
+```bash
+# Status
+systemctl status pulse-master
+systemctl status pulse-agent
+
+# Logs em tempo real
+journalctl -u pulse-master -f
+journalctl -u pulse-agent -f
+
+# Reiniciar
+systemctl restart pulse-master
+
+# Desinstalar
+systemctl disable --now pulse-master
+rm /usr/local/bin/pulse-master
+rm -rf /var/lib/pulse /etc/pulse
+```
+
+---
+
+## 📈 Números
+
+| Métrica | Valor |
+|---|---|
+| Binário agent | **1.9 MB** |
+| Binário master | **~4 MB** |
+| RAM idle (agent) | **2-5 MB** |
+| RAM idle (master) | **~5 MB** |
+| Dependências externas | **0** |
+| Tempo de install | **< 5 segundos** |
+| Tempo até primeiro dado | **~1s após boot** |
+| Testes automatizados | 27 |
+| Vulnerabilidades | 0 |
+| Unsafe code | 0 |
 
 ---
 
@@ -275,44 +241,20 @@ crates/
 │   ├── telemetry.rs  # /proc + cgroup + statvfs + nvidia-smi
 │   ├── containers.rs # Docker stats via cgroup
 │   └── worker.rs     # exec/package/file/log-tail
-├── pulse-master/     # Servidor central
+├── pulse-master/     # Servidor central (~4 MB)
 │   ├── service.rs    # gRPC + auto-provisioning
-│   ├── storage.rs    # TimescaleDB (sqlx)
+│   ├── storage.rs    # SQLite (default) ou Postgres (via DATABASE_URL)
 │   ├── alerts.rs     # Threshold → webhook
+│   ├── api.rs        # REST API (axum)
 │   └── ca.rs         # X.509 CA (rcgen)
 └── pulse-tests/      # Integration tests
 ```
 
 ---
 
-## 📈 Números
-
-| Métrica | Valor |
-|---|---|
-| Binário agent | **1.9 MB** |
-| RAM idle (agent) | **2-5 MB** |
-| Testes automatizados | 13 |
-| Checks e2e Docker | 7 |
-| Vulnerabilidades | 0 |
-| Unsafe code | 0 |
-| Tempo até primeiro dado | ~1s após boot |
-
----
-
 ## 📖 Documentação Completa
 
-→ **[docs/](./docs/)** — Wiki completa navegável pelo GitHub
-
-- [Instalação do Master](./docs/master-install.md) — TimescaleDB + systemd + TLS
-- [Instalação do Agent](./docs/agent-install.md) — Deploy em cada servidor
-- [Configuração](./docs/configuration.md) — Todas as env vars e campos TOML
-- [Funcionalidades](./docs/features.md) — Lista 1-a-1 de tudo que coleta
-- [REST API](./docs/api.md) — Endpoints HTTP para consultar agents e métricas
-- [Alertas](./docs/alerting.md) — Telegram, Slack, Discord, webhooks
-- [Segurança](./docs/security.md) — mTLS, auth token, hardening
-- [Docker](./docs/docker.md) — Dev environment + queries SQL úteis
-- [Grafana](./docs/grafana.md) — Setup + queries customizadas
-- [Troubleshooting](./docs/troubleshooting.md) — Problemas comuns
+→ **[docs/](./docs/)** — Wiki navegável pelo GitHub
 
 ---
 
