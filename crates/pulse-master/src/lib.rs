@@ -1,4 +1,5 @@
 pub mod alerts;
+pub mod api;
 pub mod ca;
 pub mod heartbeat;
 pub mod service;

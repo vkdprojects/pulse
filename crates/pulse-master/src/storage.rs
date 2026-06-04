@@ -18,6 +18,10 @@ impl Storage {
         Ok(Self { pool })
     }
 
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn migrate(&self) -> Result<()> {
         let sql = include_str!("../../../migrations/001_init.sql");
         sqlx::raw_sql(sql).execute(&self.pool).await?;
