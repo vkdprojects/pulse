@@ -20,14 +20,13 @@ async fn main() -> Result<()> {
     let db_url = std::env::var("DATABASE_URL").ok();
 
     // Auto-detect data directory
-    let data_dir = if std::path::Path::new("/var/lib/pulse").exists()
-        || std::fs::create_dir_all("/var/lib/pulse").is_ok()
-    {
-        "/var/lib/pulse".to_string()
-    } else {
-        std::fs::create_dir_all("data").ok();
-        "data".to_string()
-    };
+    let data_dir =
+        if std::path::Path::new("/var/lib/pulse").exists() || std::fs::create_dir_all("/var/lib/pulse").is_ok() {
+            "/var/lib/pulse".to_string()
+        } else {
+            std::fs::create_dir_all("data").ok();
+            "data".to_string()
+        };
 
     // Auto-generate TLS certs if none exist
     let tls_dir = std::env::var("PULSE_TLS_DIR").unwrap_or_else(|_| format!("{data_dir}/certs"));
@@ -126,8 +125,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_retention_worker(storage: Storage) {
-    let retention_days: i64 =
-        std::env::var("PULSE_RETENTION_DAYS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    let retention_days: i64 = std::env::var("PULSE_RETENTION_DAYS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
     let mut tick = interval(Duration::from_secs(3600));
     loop {
         tick.tick().await;

@@ -655,23 +655,29 @@ impl Storage {
     }
 
     pub async fn delete_old_data(&self, retention_days: i64) -> Result<()> {
-        let tables =
-            ["metrics", "net_metrics", "container_metrics", "disk_metrics", "disk_io_metrics", "disk_health", "temperature_metrics", "gpu_metrics", "process_metrics", "ssh_sessions"];
+        let tables = [
+            "metrics",
+            "net_metrics",
+            "container_metrics",
+            "disk_metrics",
+            "disk_io_metrics",
+            "disk_health",
+            "temperature_metrics",
+            "gpu_metrics",
+            "process_metrics",
+            "ssh_sessions",
+        ];
 
         match self {
             Storage::Postgres(pool) => {
                 for table in tables {
-                    let sql = format!(
-                        "DELETE FROM {table} WHERE time < NOW() - make_interval(days => $1)"
-                    );
+                    let sql = format!("DELETE FROM {table} WHERE time < NOW() - make_interval(days => $1)");
                     sqlx::query(&sql).bind(retention_days as i32).execute(pool).await?;
                 }
             }
             Storage::Sqlite(pool) => {
                 for table in tables {
-                    let sql = format!(
-                        "DELETE FROM {table} WHERE time < datetime('now', '-' || $1 || ' days')"
-                    );
+                    let sql = format!("DELETE FROM {table} WHERE time < datetime('now', '-' || $1 || ' days')");
                     sqlx::query(&sql).bind(retention_days).execute(pool).await?;
                 }
             }
