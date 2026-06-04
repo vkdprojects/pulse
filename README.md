@@ -188,4 +188,20 @@ crates/
 
 ---
 
+## 📖 Documentação Completa
+
+→ **[docs/](./docs/)** — Wiki completa navegável pelo GitHub
+
+- [Instalação do Master](./docs/master-install.md) — TimescaleDB + systemd + TLS
+- [Instalação do Agent](./docs/agent-install.md) — Deploy em cada servidor
+- [Configuração](./docs/configuration.md) — Todas as env vars e campos TOML
+- [Funcionalidades](./docs/features.md) — Lista 1-a-1 de tudo que coleta
+- [Alertas](./docs/alerting.md) — Telegram, Slack, Discord, webhooks
+- [Segurança](./docs/security.md) — mTLS, auth token, hardening
+- [Docker](./docs/docker.md) — Dev environment + queries SQL úteis
+- [Grafana](./docs/grafana.md) — Setup + queries customizadas
+- [Troubleshooting](./docs/troubleshooting.md) — Problemas comuns
+
+---
+
 **MIT License** · Made with ❤️ by GCN Soluções
