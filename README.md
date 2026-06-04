@@ -151,6 +151,47 @@ just docker-test   # e2e completo no Docker
 
 ---
 
+## 🔄 Update / Upgrade
+
+**Master:**
+
+```bash
+# 1. Build nova versão
+cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
+
+# 2. Substitui binário e reinicia
+scp target/x86_64-unknown-linux-musl/release/pulse-master server:/tmp/
+ssh server 'sudo systemctl stop pulse-master && sudo cp /tmp/pulse-master /usr/local/bin/ && sudo systemctl start pulse-master'
+```
+
+O master roda migrations automaticamente no boot (`Storage::migrate()`). Novas tabelas são criadas com `IF NOT EXISTS` e colunas novas via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. **Não precisa rodar SQL manual.**
+
+**Agent:**
+
+```bash
+# 1. Build nova versão
+cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
+
+# 2. Substitui binário e reinicia
+scp target/x86_64-unknown-linux-musl/release/pulse-agent server:/tmp/
+ssh server 'sudo systemctl stop pulse-agent && sudo cp /tmp/pulse-agent /usr/local/bin/ && sudo systemctl start pulse-agent'
+```
+
+O agent reconecta automaticamente com backoff exponencial. Não precisa de coordenação com o master — atualize em qualquer ordem.
+
+**Docker:**
+
+```bash
+docker compose pull   # ou rebuild se custom
+docker compose up -d --build
+```
+
+Migrations rodam no boot do master. Agents reconectam sozinhos.
+
+**Ordem recomendada:** master primeiro (para ter o schema novo antes de receber dados novos), depois agents. Mas funciona em qualquer ordem — campos novos do agent são ignorados silenciosamente pelo master antigo, e o master novo aceita payloads de agents antigos (campos opcionais no proto).
+
+---
+
 ## 📦 Deploy em Produção
 
 ```bash

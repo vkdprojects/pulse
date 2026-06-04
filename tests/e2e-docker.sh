@@ -87,6 +87,30 @@ else
     fail "Hypertables not configured"
 fi
 
+# --- Disk I/O persisted ---
+DISK_IO=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM disk_io_metrics;" 2>/dev/null | tr -d ' ')
+if [ "$DISK_IO" -ge 1 ] 2>/dev/null; then
+    pass "Disk I/O metrics persisted ($DISK_IO rows)"
+else
+    fail "No disk I/O data in disk_io_metrics"
+fi
+
+# --- Process metrics persisted ---
+PROCS=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM process_metrics;" 2>/dev/null | tr -d ' ')
+if [ "$PROCS" -ge 1 ] 2>/dev/null; then
+    pass "Process metrics persisted ($PROCS rows)"
+else
+    fail "No process data in process_metrics"
+fi
+
+# --- Disk usage persisted ---
+DISK_USE=$(docker compose exec -T db psql -U pulse -t -c "SELECT count(*) FROM disk_metrics;" 2>/dev/null | tr -d ' ')
+if [ "$DISK_USE" -ge 1 ] 2>/dev/null; then
+    pass "Disk usage metrics persisted ($DISK_USE rows)"
+else
+    fail "No disk usage data in disk_metrics"
+fi
+
 # --- Show sample data ---
 echo ""
 echo "── Sample data from DB ──"
@@ -106,7 +130,7 @@ docker compose down -v 2>&1 | tail -1
 echo ""
 if [ "$PASS" = true ]; then
     echo "═══════════════════════════════════"
-    echo "  ALL 7 CHECKS PASSED ✓"
+    echo "  ALL 10 CHECKS PASSED ✓"
     echo "═══════════════════════════════════"
     exit 0
 else

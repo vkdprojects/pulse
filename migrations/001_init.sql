@@ -31,10 +31,14 @@ CREATE TABLE IF NOT EXISTS metrics (
     cgroup_usage BIGINT,
     uptime_secs BIGINT,
     procs_total INTEGER,
-    procs_running INTEGER
+    procs_running INTEGER,
+    battery_pct INTEGER
 );
 
 SELECT create_hypertable('metrics', by_range('time'), if_not_exists => TRUE);
+
+-- Schema evolution: add columns that may not exist in older installations
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS battery_pct INTEGER;
 
 -- Network metrics (separate hypertable — different cardinality)
 CREATE TABLE IF NOT EXISTS net_metrics (
@@ -120,6 +124,211 @@ EXCEPTION WHEN others THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_container_agent_time ON container_metrics (agent_id, time DESC);
+
+-- Disk usage metrics
+CREATE TABLE IF NOT EXISTS disk_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    mount_point TEXT NOT NULL,
+    total_bytes BIGINT,
+    used_bytes BIGINT
+);
+
+SELECT create_hypertable('disk_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE disk_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,mount_point'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('disk_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('disk_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_disk_agent_time ON disk_metrics (agent_id, time DESC);
+
+-- Disk I/O metrics
+CREATE TABLE IF NOT EXISTS disk_io_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    device TEXT NOT NULL,
+    read_bytes BIGINT,
+    write_bytes BIGINT,
+    read_ops BIGINT,
+    write_ops BIGINT
+);
+
+SELECT create_hypertable('disk_io_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE disk_io_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,device'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('disk_io_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('disk_io_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_disk_io_agent_time ON disk_io_metrics (agent_id, time DESC);
+
+-- Disk health / SMART
+CREATE TABLE IF NOT EXISTS disk_health (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    device TEXT NOT NULL,
+    model TEXT,
+    temp_c INTEGER,
+    power_on_hours INTEGER,
+    healthy BOOLEAN
+);
+
+SELECT create_hypertable('disk_health', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE disk_health SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,device'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('disk_health', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('disk_health', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_disk_health_agent_time ON disk_health (agent_id, time DESC);
+
+-- Temperature metrics
+CREATE TABLE IF NOT EXISTS temperature_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    zone TEXT NOT NULL,
+    temp_mc INTEGER
+);
+
+SELECT create_hypertable('temperature_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE temperature_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,zone'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('temperature_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('temperature_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_temp_agent_time ON temperature_metrics (agent_id, time DESC);
+
+-- GPU metrics
+CREATE TABLE IF NOT EXISTS gpu_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    gpu_index INTEGER NOT NULL,
+    name TEXT,
+    utilization_pct INTEGER,
+    mem_used BIGINT,
+    mem_total BIGINT,
+    temp_c INTEGER,
+    power_watts INTEGER
+);
+
+SELECT create_hypertable('gpu_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE gpu_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id,gpu_index'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('gpu_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('gpu_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_gpu_agent_time ON gpu_metrics (agent_id, time DESC);
+
+-- Top processes
+CREATE TABLE IF NOT EXISTS process_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    cpu_bp INTEGER,
+    rss_bytes BIGINT
+);
+
+SELECT create_hypertable('process_metrics', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE process_metrics SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('process_metrics', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('process_metrics', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_process_agent_time ON process_metrics (agent_id, time DESC);
+
+-- SSH sessions
+CREATE TABLE IF NOT EXISTS ssh_sessions (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    remote_ip TEXT,
+    tty TEXT,
+    pid INTEGER
+);
+
+SELECT create_hypertable('ssh_sessions', by_range('time'), if_not_exists => TRUE);
+
+ALTER TABLE ssh_sessions SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_id'
+);
+
+DO $$ BEGIN
+  PERFORM add_compression_policy('ssh_sessions', INTERVAL '7 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  PERFORM add_retention_policy('ssh_sessions', INTERVAL '90 days');
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_ssh_agent_time ON ssh_sessions (agent_id, time DESC);
 
 -- Continuous aggregates: pre-compute hourly rollups for dashboards
 DO $$ BEGIN
