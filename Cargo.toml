@@ -18,7 +18,7 @@ rustls-pki-types = "1"
 tokio-stream = "0.1"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "chrono"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "sqlite", "chrono"] }
 axum = "0.8"
 serde_json = "1"
 tracing = "0.1"

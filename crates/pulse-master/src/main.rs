@@ -1,8 +1,9 @@
 use anyhow::Result;
 use pulse_master::service::PulseService;
 use pulse_master::storage::Storage;
+use tokio::time::{Duration, interval};
 use tonic::transport::{Identity, Server, ServerTlsConfig};
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,16 +20,14 @@ async fn main() -> Result<()> {
     let tls_dir = std::env::var("PULSE_TLS_DIR").ok();
     let db_url = std::env::var("DATABASE_URL").ok();
 
-    // Connect to TimescaleDB if configured
-    let storage = if let Some(ref url) = db_url {
-        info!("connecting to TimescaleDB...");
+    // Storage: Postgres if DATABASE_URL set, otherwise SQLite (zero-config default)
+    let storage = {
+        let url = db_url.as_deref();
+        info!(backend = if url.is_some() { "postgres" } else { "sqlite" }, "connecting to database...");
         let s = Storage::connect(url).await?;
         s.migrate().await?;
         info!("database ready");
-        Some(s)
-    } else {
-        info!("no DATABASE_URL — running without persistence");
-        None
+        s
     };
 
     let mut builder = if let Some(ref dir) = tls_dir {
@@ -48,9 +47,7 @@ async fn main() -> Result<()> {
     };
 
     let mut service = PulseService::new();
-    if let Some(ref s) = storage {
-        service = service.with_storage(s.clone());
-    }
+    service = service.with_storage(storage.clone());
 
     // Load or create CA for auto-provisioning
     if tls_dir.is_some() {
@@ -59,32 +56,37 @@ async fn main() -> Result<()> {
         service = service.with_ca(ca);
     }
 
-    // Background: agent offline detection
-    let storage_clone = storage.clone();
-    if let Some(s) = storage {
+    // Background: agent offline detection + retention
+    {
         let alerts = pulse_master::alerts::AlertEngine::new();
-        tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(s, alerts));
+        tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(storage.clone(), alerts));
+        tokio::spawn(run_retention_worker(storage.clone()));
     }
 
-    // REST API + Health endpoint (HTTP on :8080)
-    if let Some(ref s) = storage_clone {
-        let app = pulse_master::api::router(s.clone());
+    // REST API (HTTP on :8080)
+    {
+        let app = pulse_master::api::router(storage.clone());
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-            info!("REST API on :8080 (health, agents, metrics)");
-            axum::serve(listener, app).await.unwrap();
-        });
-    } else {
-        // Minimal health without DB
-        tokio::spawn(async {
-            let app = axum::Router::new()
-                .route("/health", axum::routing::get(|| async { axum::Json(serde_json::json!({"status":"ok"})) }));
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-            info!("health endpoint on :8080/health");
+            info!("REST API on :8080");
             axum::serve(listener, app).await.unwrap();
         });
     }
 
     builder.add_service(service.into_server()).serve(addr).await?;
     Ok(())
+}
+
+async fn run_retention_worker(storage: Storage) {
+    let retention_days: i64 =
+        std::env::var("PULSE_RETENTION_DAYS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    let mut tick = interval(Duration::from_secs(3600));
+    loop {
+        tick.tick().await;
+        if let Err(e) = storage.delete_old_data(retention_days).await {
+            warn!(error = %e, "retention cleanup failed");
+        } else {
+            info!(retention_days, "retention cleanup complete");
+        }
+    }
 }
