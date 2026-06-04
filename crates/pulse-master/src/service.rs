@@ -51,6 +51,11 @@ impl PulseService {
         self
     }
 
+    pub fn with_token(mut self, token: String) -> Self {
+        self.register_token = Some(token);
+        self
+    }
+
     pub fn into_server(self) -> PulseAgentServer<Self> {
         PulseAgentServer::new(self)
     }

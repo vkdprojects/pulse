@@ -1,110 +1,232 @@
 #!/bin/sh
 set -eu
 
-# Vixpi Pulse — Universal Install Script
-# Usage:
-#   Agent:  curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | PULSE_MASTER=https://master:50051 PULSE_TOKEN=xxx sh -
-#   Master: curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=master PULSE_DB_URL=postgres://... sh -
+# ═══════════════════════════════════════════════════════════════════
+# Vixpi Pulse — Universal Installer
+#
+# Master: curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
+# Agent:  curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | PULSE_MASTER=https://IP:50051 sudo sh -
+#
+# Config via env vars:
+#   PULSE_MASTER      - Master URL (if set → installs agent, if unset → installs master)
+#   PULSE_TOKEN       - Register token for agent auth
+#   VERSION           - Specific version (default: latest)
+#   GITHUB_TOKEN      - For private repos
+#   INSTALL_COMPONENT - Force: "agent" or "master" (auto-detected if not set)
+# ═══════════════════════════════════════════════════════════════════
 
 GITHUB_REPO="${GITHUB_REPO:-gcnsolucoes/vixpi-pulse}"
-INSTALL_COMPONENT="${INSTALL_COMPONENT:-agent}"  # agent | master
 VERSION="${VERSION:-latest}"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-CONFIG_DIR="${CONFIG_DIR:-/etc/pulse}"
 PULSE_MASTER="${PULSE_MASTER:-}"
 PULSE_TOKEN="${PULSE_TOKEN:-}"
-PULSE_DB_URL="${PULSE_DB_URL:-}"
-PULSE_TLS_DIR="${PULSE_TLS_DIR:-/etc/pulse/certs}"
-PULSE_LISTEN="${PULSE_LISTEN:-0.0.0.0:50051}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+INSTALL_DIR="/usr/local/bin"
+CONFIG_DIR="/etc/pulse"
+DATA_DIR="/var/lib/pulse"
 
-# --- Helpers ---
+# Auto-detect: if PULSE_MASTER is set → agent, otherwise → master
+if [ -n "$PULSE_MASTER" ]; then
+    COMPONENT="${INSTALL_COMPONENT:-agent}"
+else
+    COMPONENT="${INSTALL_COMPONENT:-master}"
+fi
 
-info() { printf "\033[1;34m→\033[0m %s\n" "$1"; }
-ok()   { printf "\033[1;32m✓\033[0m %s\n" "$1"; }
-err()  { printf "\033[1;31m✗\033[0m %s\n" "$1" >&2; exit 1; }
+# ─── Output helpers ────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info()  { printf "${BLUE}→${RESET} %s\n" "$1"; }
+ok()    { printf "${GREEN}✓${RESET} %s\n" "$1"; }
+warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
+err()   { printf "${RED}✗ %s${RESET}\n" "$1" >&2; exit 1; }
+header() {
+    echo ""
+    printf "${BOLD}⚡ Vixpi Pulse — Installer${RESET}\n"
+    echo ""
+}
+
+# ─── Detection ─────────────────────────────────────────────────────
 
 detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)  echo "x86_64" ;;
         aarch64|arm64) echo "aarch64" ;;
-        *) err "Unsupported architecture: $(uname -m). Only x86_64 and aarch64 are supported." ;;
+        *) err "Unsupported architecture: $(uname -m)" ;;
     esac
 }
 
-detect_os() {
-    case "$(uname -s)" in
-        Linux) echo "linux" ;;
-        *) err "Unsupported OS: $(uname -s). Only Linux is supported." ;;
-    esac
+detect_ip() {
+    # Try public IP first (fast timeout)
+    local ip=""
+    ip=$(curl -sfL --max-time 2 https://ifconfig.me 2>/dev/null) || true
+    if [ -z "$ip" ]; then
+        ip=$(curl -sfL --max-time 2 https://api.ipify.org 2>/dev/null) || true
+    fi
+    if [ -z "$ip" ]; then
+        # Fallback: private IP from default route
+        ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}') || true
+    fi
+    if [ -z "$ip" ]; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}') || true
+    fi
+    echo "${ip:-$(hostname)}"
 }
 
 need_root() {
     if [ "$(id -u)" != "0" ]; then
         if command -v sudo >/dev/null 2>&1; then
-            exec sudo "$0" "$@"
+            exec sudo sh -c "PULSE_MASTER='${PULSE_MASTER}' PULSE_TOKEN='${PULSE_TOKEN}' VERSION='${VERSION}' GITHUB_TOKEN='${GITHUB_TOKEN}' INSTALL_COMPONENT='${COMPONENT}' GITHUB_REPO='${GITHUB_REPO}' sh" < /dev/stdin
         fi
-        err "This script must be run as root (or with sudo)."
+        err "Root required. Run with: sudo sh -"
     fi
 }
 
-# --- Download ---
+# ─── Download ──────────────────────────────────────────────────────
 
 download_binary() {
-    local component="$1" arch="$2" url asset_name
+    local name="$1" arch="$2" url
 
-    asset_name="pulse-${component}-linux-${arch}"
+    name="pulse-${name}"
+    local asset="${name}-linux-${arch}"
 
     if [ "$VERSION" = "latest" ]; then
-        url="https://github.com/${GITHUB_REPO}/releases/latest/download/${asset_name}"
+        url="https://github.com/${GITHUB_REPO}/releases/latest/download/${asset}"
     else
-        url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset_name}"
+        url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset}"
     fi
 
-    info "Downloading pulse-${component} (${arch})..."
+    local auth=""
+    [ -n "$GITHUB_TOKEN" ] && auth="-H 'Authorization: token ${GITHUB_TOKEN}'"
 
-    local auth_header=""
-    if [ -n "$GITHUB_TOKEN" ]; then
-        auth_header="Authorization: token ${GITHUB_TOKEN}"
-    fi
-
+    info "Baixando ${name} (${arch})..."
     if command -v curl >/dev/null 2>&1; then
-        if [ -n "$auth_header" ]; then
-            curl -sfL -H "$auth_header" -o "${INSTALL_DIR}/pulse-${component}" "$url"
+        if [ -n "$GITHUB_TOKEN" ]; then
+            curl -sfL -H "Authorization: token ${GITHUB_TOKEN}" -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Verifique a versão e acesso ao repo."
         else
-            curl -sfL -o "${INSTALL_DIR}/pulse-${component}" "$url"
+            curl -sfL -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Se repo privado, passe GITHUB_TOKEN."
         fi
     elif command -v wget >/dev/null 2>&1; then
-        if [ -n "$auth_header" ]; then
-            wget -q --header="$auth_header" -O "${INSTALL_DIR}/pulse-${component}" "$url"
+        if [ -n "$GITHUB_TOKEN" ]; then
+            wget -q --header="Authorization: token ${GITHUB_TOKEN}" -O "${INSTALL_DIR}/${name}" "$url" || err "Download falhou."
         else
-            wget -q -O "${INSTALL_DIR}/pulse-${component}" "$url"
+            wget -q -O "${INSTALL_DIR}/${name}" "$url" || err "Download falhou."
         fi
     else
-        err "curl or wget required"
+        err "curl ou wget necessário."
     fi
 
-    chmod +x "${INSTALL_DIR}/pulse-${component}"
-    ok "Installed pulse-${component} → ${INSTALL_DIR}/pulse-${component}"
+    chmod +x "${INSTALL_DIR}/${name}"
+    ok "Instalado: ${INSTALL_DIR}/${name} ($(du -h "${INSTALL_DIR}/${name}" | awk '{print $1}'))"
 }
 
-# --- Agent Setup ---
+# ─── Master Install ───────────────────────────────────────────────
+
+install_master() {
+    mkdir -p "$CONFIG_DIR" "$DATA_DIR"
+
+    # Generate TLS certs if not present
+    if [ ! -f "${CONFIG_DIR}/certs/ca.pem" ]; then
+        info "Gerando certificados TLS..."
+        mkdir -p "${CONFIG_DIR}/certs"
+        "${INSTALL_DIR}/pulse-master" gen-certs "${CONFIG_DIR}/certs" 2>/dev/null
+        ok "Certificados gerados: ${CONFIG_DIR}/certs/"
+    else
+        ok "Certificados existentes mantidos"
+    fi
+
+    # Generate register token if not present
+    if [ ! -f "${CONFIG_DIR}/register-token" ]; then
+        TOKEN=$(head -c 32 /dev/urandom | od -A n -t x1 | tr -d ' \n')
+        printf '%s' "$TOKEN" > "${CONFIG_DIR}/register-token"
+        chmod 600 "${CONFIG_DIR}/register-token"
+        ok "Token de registro gerado"
+    else
+        TOKEN=$(cat "${CONFIG_DIR}/register-token")
+        ok "Token existente mantido"
+    fi
+
+    # Stop existing service if updating
+    systemctl stop pulse-master 2>/dev/null || true
+
+    # Create systemd service
+    cat > /etc/systemd/system/pulse-master.service <<EOF
+[Unit]
+Description=Vixpi Pulse Master
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${INSTALL_DIR}/pulse-master
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+Environment=PULSE_LISTEN=0.0.0.0:50051
+Environment=PULSE_TLS_DIR=${CONFIG_DIR}/certs
+Environment=PULSE_REGISTER_TOKEN=${TOKEN}
+WorkingDirectory=${DATA_DIR}
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=${DATA_DIR} ${CONFIG_DIR}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable pulse-master >/dev/null 2>&1
+    systemctl start pulse-master
+    ok "Serviço pulse-master ativo"
+
+    # Detect IP for the agent command
+    local MY_IP
+    MY_IP=$(detect_ip)
+
+    echo ""
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+    printf "${GREEN}${BOLD} ✓ Pulse Master rodando!${RESET}\n"
+    echo ""
+    echo "  Dashboard:  http://${MY_IP}:8080"
+    echo "  gRPC:       https://${MY_IP}:50051"
+    echo "  Token:      ${TOKEN}"
+    echo ""
+    echo "  Para monitorar um servidor, rode nele:"
+    echo ""
+    printf "  ${BOLD}curl -sfL https://raw.githubusercontent.com/${GITHUB_REPO}/main/dist/install-pulse.sh | \\ \n"
+    printf "    PULSE_MASTER=https://${MY_IP}:50051 PULSE_TOKEN=${TOKEN} sudo sh -${RESET}\n"
+    echo ""
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+    echo ""
+    echo "  Gerenciar:  systemctl {status|stop|restart} pulse-master"
+    echo "  Logs:       journalctl -u pulse-master -f"
+    echo ""
+}
+
+# ─── Agent Install ─────────────────────────────────────────────────
 
 install_agent() {
-    if [ -z "$PULSE_MASTER" ]; then
-        err "PULSE_MASTER is required. Example: PULSE_MASTER=https://your-master:50051"
-    fi
+    [ -z "$PULSE_MASTER" ] && err "PULSE_MASTER é obrigatório. Ex: PULSE_MASTER=https://seu-master:50051"
 
     mkdir -p "$CONFIG_DIR"
 
-    # Generate config
+    # Stop existing service if updating
+    systemctl stop pulse-agent 2>/dev/null || true
+
+    # Write config
     cat > "${CONFIG_DIR}/agent.toml" <<EOF
 master_endpoint = "${PULSE_MASTER}"
 metrics_interval_ms = 10000
 auth_token = "${PULSE_TOKEN}"
 EOF
-
-    ok "Config written → ${CONFIG_DIR}/agent.toml"
+    ok "Config: ${CONFIG_DIR}/agent.toml"
 
     # Create systemd service
     cat > /etc/systemd/system/pulse-agent.service <<EOF
@@ -120,7 +242,6 @@ Restart=always
 RestartSec=5
 Environment=RUST_LOG=info
 
-# Hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -133,83 +254,36 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable pulse-agent
+    systemctl enable pulse-agent >/dev/null 2>&1
     systemctl start pulse-agent
-    ok "pulse-agent service started and enabled"
-}
-
-# --- Master Setup ---
-
-install_master() {
-    mkdir -p "$CONFIG_DIR" "$PULSE_TLS_DIR"
-
-    # Generate TLS certs
-    info "Generating TLS certificates..."
-    "${INSTALL_DIR}/pulse-master" gen-certs "$PULSE_TLS_DIR"
-    ok "Certificates generated → ${PULSE_TLS_DIR}/"
-
-    # Create systemd service
-    cat > /etc/systemd/system/pulse-master.service <<EOF
-[Unit]
-Description=Vixpi Pulse Master
-After=network-online.target postgresql.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${INSTALL_DIR}/pulse-master
-Restart=always
-RestartSec=5
-Environment=RUST_LOG=info
-Environment=PULSE_LISTEN=${PULSE_LISTEN}
-Environment=PULSE_TLS_DIR=${PULSE_TLS_DIR}
-Environment=DATABASE_URL=${PULSE_DB_URL}
-
-# Hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadOnlyPaths=/
-ReadWritePaths=${CONFIG_DIR} ${PULSE_TLS_DIR}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable pulse-master
-    systemctl start pulse-master
-    ok "pulse-master service started and enabled"
+    ok "Serviço pulse-agent ativo"
 
     echo ""
-    info "Master is listening on ${PULSE_LISTEN}"
-    info "REST API on :8080"
-    info "Install agents with:"
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+    printf "${GREEN}${BOLD} ✓ Pulse Agent rodando!${RESET}\n"
     echo ""
-    echo "  curl -sfL https://raw.githubusercontent.com/${GITHUB_REPO}/main/dist/install-pulse.sh | PULSE_MASTER=https://$(hostname -I | awk '{print $1}'):50051 PULSE_TOKEN=your-token sh -"
+    echo "  Conectado a: ${PULSE_MASTER}"
+    echo "  Métricas fluindo a cada 10s."
+    echo ""
+    printf "${BOLD}════════════════════════════════════════════════════${RESET}\n"
+    echo ""
+    echo "  Gerenciar:  systemctl {status|stop|restart} pulse-agent"
+    echo "  Logs:       journalctl -u pulse-agent -f"
     echo ""
 }
 
-# --- Main ---
+# ─── Main ──────────────────────────────────────────────────────────
 
 need_root
+header
+
 ARCH=$(detect_arch)
-OS=$(detect_os)
+info "Detectado: linux/${ARCH} → instalando ${COMPONENT}"
 
-info "Installing Vixpi Pulse (${INSTALL_COMPONENT}) on ${OS}/${ARCH}"
+download_binary "$COMPONENT" "$ARCH"
 
-download_binary "$INSTALL_COMPONENT" "$ARCH"
-
-case "$INSTALL_COMPONENT" in
+case "$COMPONENT" in
     agent)  install_agent ;;
     master) install_master ;;
-    *) err "INSTALL_COMPONENT must be 'agent' or 'master'" ;;
+    *) err "Componente inválido: ${COMPONENT}" ;;
 esac
-
-echo ""
-ok "Done! Pulse ${INSTALL_COMPONENT} is running."
-echo "  Status:  systemctl status pulse-${INSTALL_COMPONENT}"
-echo "  Logs:    journalctl -u pulse-${INSTALL_COMPONENT} -f"
-echo "  Stop:    systemctl stop pulse-${INSTALL_COMPONENT}"
-echo "  Remove:  systemctl disable pulse-${INSTALL_COMPONENT} && rm ${INSTALL_DIR}/pulse-${INSTALL_COMPONENT}"

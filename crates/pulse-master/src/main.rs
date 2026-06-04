@@ -17,8 +17,53 @@ async fn main() -> Result<()> {
     }
 
     let addr = std::env::var("PULSE_LISTEN").unwrap_or_else(|_| "[::1]:50051".into()).parse()?;
-    let tls_dir = std::env::var("PULSE_TLS_DIR").ok();
     let db_url = std::env::var("DATABASE_URL").ok();
+
+    // Auto-detect data directory
+    let data_dir = if std::path::Path::new("/var/lib/pulse").exists()
+        || std::fs::create_dir_all("/var/lib/pulse").is_ok()
+    {
+        "/var/lib/pulse".to_string()
+    } else {
+        std::fs::create_dir_all("data").ok();
+        "data".to_string()
+    };
+
+    // Auto-generate TLS certs if none exist
+    let tls_dir = std::env::var("PULSE_TLS_DIR").unwrap_or_else(|_| format!("{data_dir}/certs"));
+    let tls_enabled = if std::path::Path::new(&format!("{tls_dir}/ca.pem")).exists() {
+        true
+    } else if std::fs::create_dir_all(&tls_dir).is_ok() {
+        info!("auto-generating TLS certificates...");
+        match pulse_master::gen_dev_certs(&tls_dir) {
+            Ok(()) => {
+                info!(dir = %tls_dir, "TLS certificates generated");
+                true
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to generate TLS certs, running insecure");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Auto-generate register token if not set
+    let register_token = if let Ok(t) = std::env::var("PULSE_REGISTER_TOKEN") {
+        Some(t)
+    } else {
+        let token_path = format!("{data_dir}/register-token");
+        if std::path::Path::new(&token_path).exists() {
+            let t = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        } else {
+            let t: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            std::fs::write(&token_path, &t).ok();
+            info!(token = %t, "register token generated");
+            Some(t)
+        }
+    };
 
     // Storage: Postgres if DATABASE_URL set, otherwise SQLite (zero-config default)
     let storage = {
@@ -30,10 +75,10 @@ async fn main() -> Result<()> {
         s
     };
 
-    let mut builder = if let Some(ref dir) = tls_dir {
-        let cert = std::fs::read_to_string(format!("{dir}/server.pem"))?;
-        let key = std::fs::read_to_string(format!("{dir}/server-key.pem"))?;
-        let ca_cert = std::fs::read_to_string(format!("{dir}/ca.pem"))?;
+    let mut builder = if tls_enabled {
+        let cert = std::fs::read_to_string(format!("{tls_dir}/server.pem"))?;
+        let key = std::fs::read_to_string(format!("{tls_dir}/server-key.pem"))?;
+        let ca_cert = std::fs::read_to_string(format!("{tls_dir}/ca.pem"))?;
 
         let tls = ServerTlsConfig::new()
             .identity(Identity::from_pem(&cert, &key))
@@ -48,9 +93,12 @@ async fn main() -> Result<()> {
 
     let mut service = PulseService::new();
     service = service.with_storage(storage.clone());
+    if let Some(ref token) = register_token {
+        service = service.with_token(token.clone());
+    }
 
     // Load or create CA for auto-provisioning
-    if tls_dir.is_some() {
+    if tls_enabled {
         let ca = pulse_master::ca::CaBundle::new().map_err(|e| anyhow::anyhow!("CA init failed: {e}"))?;
         info!("CA initialized for agent auto-provisioning");
         service = service.with_ca(ca);
@@ -89,4 +137,14 @@ async fn run_retention_worker(storage: Storage) {
             info!(retention_days, "retention cleanup complete");
         }
     }
+}
+
+fn rand_byte() -> u8 {
+    use std::io::Read;
+    let mut buf = [0u8; 1];
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).unwrap_or_else(|_| {
+        buf[0] = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_nanos()
+            & 0xFF) as u8;
+    });
+    buf[0]
 }

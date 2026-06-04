@@ -2,15 +2,33 @@
 
 > **O monitoring agent que cabe no bolso do seu servidor.**
 
-Binário de **1.9 MB**. Roda com **2-5 MB de RAM**. Coleta tudo. Executa comandos remotos. Zero dependências.
+Binário de **1.9 MB**. Roda com **2-5 MB de RAM**. Coleta tudo. Executa comandos remotos. **Zero dependências.**
 
 ```
-┌─────────────┐    gRPC/mTLS     ┌──────────────┐    ┌─────────────┐    ┌─────────┐
-│ pulse-agent │ ═══════════════▶ │ pulse-master │ ══▶│ TimescaleDB │ ══▶│ Grafana │
-│  (1.9 MB)   │ ◀═══════════════ │  (central)   │    └─────────────┘    └─────────┘
-└─────────────┘   commands        └──────────────┘
-     × N agents                        auto-provisioning
+┌─────────────┐    gRPC/mTLS     ┌──────────────┐
+│ pulse-agent │ ═══════════════▶ │ pulse-master │ ──▶ REST API :8080
+│  (1.9 MB)   │ ◀═══════════════ │  (~4 MB)     │ ──▶ SQLite embedded
+└─────────────┘   commands        └──────────────┘     (zero config)
+     × N agents                    auto-provisioning
 ```
+
+---
+
+## 🚀 Quick Start — 2 comandos, zero dependências
+
+```bash
+# ══════ No servidor central (master): ══════
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
+
+# ══════ Em cada servidor que quer monitorar: ══════
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  PULSE_MASTER=https://SEU-MASTER-IP:50051 PULSE_TOKEN=token-mostrado-no-install sudo sh -
+```
+
+**Pronto.** Abra `http://master:8080/api/agents` — seus servidores já aparecem.
+
+> Sem Docker. Sem Postgres. Sem Grafana. Sem config files.
+> O master gera TLS, token e database automaticamente no primeiro boot.
 
 ---
 
@@ -35,7 +53,7 @@ Binário de **1.9 MB**. Roda com **2-5 MB de RAM**. Coleta tudo. Executa comando
 
 ---
 
-## 🚀 Quick Start (30 segundos)
+## 🐳 Demo Mode (Docker Compose + Grafana)
 
 ```bash
 # Sobe tudo: DB + Master + 3 Agents + Grafana
