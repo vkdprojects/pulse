@@ -81,7 +81,8 @@ impl Storage {
                      ON CONFLICT (id) DO UPDATE SET
                         hostname = EXCLUDED.hostname,
                         agent_version = EXCLUDED.agent_version,
-                        last_seen_at = NOW()",
+                        last_seen_at = NOW(),
+                        status = 'online'",
                 )
                 .bind(id)
                 .bind(&req.hostname)
@@ -100,7 +101,8 @@ impl Storage {
                      ON CONFLICT (id) DO UPDATE SET
                         hostname = EXCLUDED.hostname,
                         agent_version = EXCLUDED.agent_version,
-                        last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                        last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        status = 'online'",
                 )
                 .bind(id)
                 .bind(&req.hostname)
@@ -321,7 +323,7 @@ impl Storage {
                     .await?;
                 }
 
-                sqlx::query("UPDATE agents SET last_seen_at = NOW() WHERE id = $1")
+                sqlx::query("UPDATE agents SET last_seen_at = NOW(), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
                     .execute(pool)
                     .await?;
@@ -502,7 +504,7 @@ impl Storage {
                     .await?;
                 }
 
-                sqlx::query("UPDATE agents SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = $1")
+                sqlx::query("UPDATE agents SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
                     .execute(pool)
                     .await?;
