@@ -94,6 +94,9 @@ download_binary() {
     name="pulse-${name}"
     local asset_name="${name}-linux-${arch}"
 
+    # Stop existing service before replacing binary (Text file busy prevention)
+    systemctl stop "${name}" 2>/dev/null || true
+
     if [ -n "$GITHUB_TOKEN" ]; then
         # Private repo: use GitHub REST API to download release asset
         info "Baixando ${name} (${arch}) [private repo]..."
@@ -104,17 +107,26 @@ download_binary() {
 
         local asset_id
         asset_id=$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$release_url" | \
-            grep -B3 "\"name\": \"${asset_name}\"" | grep '"id"' | head -1 | grep -o '[0-9]\+')
+            grep -B3 "\"name\": \"${asset_name}\"" | grep '"id"' | head -1 | grep -oE '[0-9]+')
 
         if [ -z "$asset_id" ]; then
             err "Asset '${asset_name}' não encontrado na release. Verifique VERSION e que a release existe."
         fi
 
-        curl -sfL \
-            -H "Authorization: token ${GITHUB_TOKEN}" \
-            -H "Accept: application/octet-stream" \
-            "https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset_id}" \
-            -o "${INSTALL_DIR}/${name}" || err "Download do asset falhou."
+        # Two-step: get signed URL from 302, then download
+        # (curl won't forward Authorization to cross-origin redirects)
+        local tmpurl="/tmp/.pulse_url_$$"
+        curl -sI -H 'Accept: application/octet-stream' -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset_id}" | \
+            awk '/^[Ll]ocation:/{gsub(/\r/,""); print $2}' > "$tmpurl"
+
+        if [ ! -s "$tmpurl" ]; then
+            rm -f "$tmpurl"
+            err "Não conseguiu obter URL de download do asset."
+        fi
+
+        wget -q -O "${INSTALL_DIR}/${name}" -i "$tmpurl" || curl -sfL -o "${INSTALL_DIR}/${name}" "$(cat "$tmpurl")" || err "Download do binário falhou."
+        rm -f "$tmpurl"
     else
         # Public repo: direct download
         local url
