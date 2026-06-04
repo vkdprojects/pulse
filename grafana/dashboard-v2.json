@@ -1,0 +1,515 @@
+{
+  "title": "Vixpi Pulse — Servidores",
+  "uid": "vixpi-pulse-v2",
+  "tags": ["vixpi", "pulse", "infrastructure"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "agent",
+        "label": "Servidor",
+        "type": "query",
+        "datasource": "TimescaleDB",
+        "query": "SELECT hostname AS __text, id AS __value FROM agents ORDER BY hostname",
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "stat",
+      "title": "Uptime",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT uptime_secs AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "#EAB839", "value": 3600 },
+              { "color": "green", "value": 86400 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "CPUs",
+      "gridPos": { "x": 6, "y": 0, "w": 3, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT array_length(cpu_cores_bp, 1) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Memória Total",
+      "gridPos": { "x": 9, "y": 0, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT mem_total AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "purple" } } }
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Swap Total",
+      "gridPos": { "x": 13, "y": 0, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT swap_total AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "orange" } } }
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Processos",
+      "gridPos": { "x": 17, "y": 0, "w": 3, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT procs_total AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "Status",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT status AS value FROM agents WHERE id ~ '${agent:regex}' ORDER BY last_seen_at DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "type": "value", "options": { "online": { "color": "green", "index": 0 }, "offline": { "color": "red", "index": 1 } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 110,
+      "type": "gauge",
+      "title": "CPU %",
+      "gridPos": { "x": 0, "y": 4, "w": 5, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT cpu_total_bp / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 111,
+      "type": "gauge",
+      "title": "Memória %",
+      "gridPos": { "x": 5, "y": 4, "w": 5, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (mem_used::float / NULLIF(mem_total,0) * 100) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 112,
+      "type": "gauge",
+      "title": "Swap %",
+      "gridPos": { "x": 10, "y": 4, "w": 5, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (swap_used::float / NULLIF(swap_total,0) * 100) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 50 },
+              { "color": "orange", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 113,
+      "type": "gauge",
+      "title": "Load 1m / por CPU",
+      "gridPos": { "x": 15, "y": 4, "w": 4, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (load_1m::float / 100) / NULLIF(array_length(cpu_cores_bp,1),0) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 2,
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 0.7 },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 114,
+      "type": "gauge",
+      "title": "Procs Rodando",
+      "gridPos": { "x": 19, "y": 4, "w": 5, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT procs_running AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 50,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 10 },
+              { "color": "orange", "value": 25 },
+              { "color": "red", "value": 40 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 120,
+      "type": "timeseries",
+      "title": "CPU (total + por core)",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || ' total' AS metric, cpu_total_bp / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || ' core ' || (idx-1)::text AS metric, c / 100.0 AS value FROM (SELECT time, agent_id, unnest(cpu_cores_bp) AS c, generate_subscripts(cpu_cores_bp, 1) AS idx FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time)) t ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "gradientMode": "opacity", "spanNulls": true }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*total.*" }, "properties": [{ "id": "custom.lineWidth", "value": 3 }, { "id": "custom.fillOpacity", "value": 25 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 121,
+      "type": "timeseries",
+      "title": "Interfaces de Rede (rx/tx)",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || '/' || interface || ' rx' AS metric, rx_bytes AS value FROM net_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) AND interface NOT IN ('lo','docker0') ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || '/' || interface || ' tx' AS metric, -tx_bytes AS value FROM net_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) AND interface NOT IN ('lo','docker0') ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "gradientMode": "opacity", "spanNulls": true, "axisCenteredZero": true }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 130,
+      "type": "timeseries",
+      "title": "Uso de Memória",
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || ' used' AS metric, mem_used AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || ' available' AS metric, mem_available AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || ' swap_used' AS metric, swap_used AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 25, "gradientMode": "opacity", "stacking": { "mode": "none" }, "spanNulls": true }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*used$" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byRegexp", "options": ".*available$" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byRegexp", "options": ".*swap_used$" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 131,
+      "type": "timeseries",
+      "title": "Containers (memória)",
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, container_name AS metric, mem_usage AS value FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 15, "spanNulls": true }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 140,
+      "type": "timeseries",
+      "title": "Load Average (1m / 5m / 15m)",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 9 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT time, agent_id || ' 1m'  AS metric, load_1m  / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || ' 5m'  AS metric, load_5m  / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        },
+        {
+          "rawSql": "SELECT time, agent_id || ' 15m' AS metric, load_15m / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "spanNulls": true }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 150,
+      "type": "table",
+      "title": "Inventário",
+      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT id, hostname, os, arch, agent_version AS version, labels, status, last_seen_at FROM agents WHERE id ~ '${agent:regex}' ORDER BY hostname",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "displayMode": "auto", "filterable": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [{ "type": "value", "options": { "online": { "color": "green", "index": 0 }, "offline": { "color": "red", "index": 1 } } }] }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": false } }
+    }
+  ]
+}
