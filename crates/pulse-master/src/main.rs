@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         false
     };
 
-    // Auto-generate register token if not set
+    // Auto-generate register token if not set (format: {sha256_of_ca_pem}::{random_secret})
     let register_token = if let Ok(t) = std::env::var("PULSE_REGISTER_TOKEN") {
         Some(t)
     } else {
@@ -57,9 +57,17 @@ async fn main() -> Result<()> {
             let t = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
             if t.is_empty() { None } else { Some(t) }
         } else {
-            let t: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            let secret: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            let t = if tls_enabled {
+                let ca_pem = std::fs::read_to_string(format!("{tls_dir}/ca.pem")).unwrap_or_default();
+                let hash = ring::digest::digest(&ring::digest::SHA256, ca_pem.as_bytes());
+                let ca_pin: String = hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                format!("{ca_pin}::{secret}")
+            } else {
+                secret
+            };
             std::fs::write(&token_path, &t).ok();
-            info!(token = %t, "register token generated");
+            info!(token = %t, "register token generated (with CA pin)");
             Some(t)
         }
     };

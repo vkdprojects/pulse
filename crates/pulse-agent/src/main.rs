@@ -62,6 +62,15 @@ async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayloa
     let interval = Duration::from_millis(reg.metrics_interval_ms.max(1000).into());
     info!(agent_id, ?interval, "registered with master");
 
+    // Persist client certs if provisioned by master
+    if !reg.client_cert.is_empty() && !reg.client_key.is_empty() && !reg.ca_cert.is_empty() {
+        if let Err(e) = save_provisioned_certs(config, &reg.ca_cert, &reg.client_cert, &reg.client_key) {
+            warn!(error = %e, "failed to save client certificates");
+        } else {
+            info!("client certificate saved, will use mTLS on next connection");
+        }
+    }
+
     // Metrics stream
     let (metrics_tx, metrics_rx) = mpsc::channel::<MetricsPayload>(32);
     let metrics_stream = ReceiverStream::new(metrics_rx);
@@ -200,8 +209,8 @@ async fn build_channel(config: &Config) -> Result<Channel> {
 
         Ok(endpoint.tls_config(tls_config)?.connect().await?)
     } else if config.master_endpoint.starts_with("https://") {
-        // Bootstrap: fetch CA cert from master's HTTP API, then connect with server-only TLS
-        let ca_pem = fetch_ca_from_master(&config.master_endpoint).await?;
+        // Bootstrap: fetch CA cert from master's HTTP API, validate CA pin, then connect
+        let ca_pem = fetch_and_verify_ca(&config.master_endpoint, &config.auth_token).await?;
         let tls_config = ClientTlsConfig::new().domain_name("localhost").ca_certificate(Certificate::from_pem(&ca_pem));
         Ok(endpoint.tls_config(tls_config)?.connect().await?)
     } else {
@@ -209,12 +218,11 @@ async fn build_channel(config: &Config) -> Result<Channel> {
     }
 }
 
-/// Fetch CA cert from master's REST API (HTTP :8080)
-async fn fetch_ca_from_master(grpc_endpoint: &str) -> Result<String> {
+/// Fetch CA cert from master's REST API and validate against token's CA pin
+async fn fetch_and_verify_ca(grpc_endpoint: &str, auth_token: &str) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // Convert gRPC endpoint (https://host:50051) to HTTP host:8080
-    let host_port = grpc_endpoint.trim_start_matches("https://").trim_start_matches("http://");
+    let host_port = grpc_endpoint.trim_start_matches("https://");
     let host = host_port.split(':').next().unwrap_or("localhost");
     let addr = format!("{host}:8080");
 
@@ -228,12 +236,52 @@ async fn fetch_ca_from_master(grpc_endpoint: &str) -> Result<String> {
     stream.read_to_end(&mut buf).await?;
     let response = String::from_utf8_lossy(&buf);
 
-    // Extract body after \r\n\r\n
     let body = response.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
 
     if !body.contains("BEGIN CERTIFICATE") {
         anyhow::bail!("invalid CA response from master at {addr}: {}", &body[..body.len().min(200)]);
     }
-    info!("CA certificate obtained from master");
+
+    // Validate CA pin if token contains one (format: {ca_pin}::{secret})
+    if let Some((ca_pin, _secret)) = auth_token.split_once("::") {
+        let hash = ring::digest::digest(&ring::digest::SHA256, body.as_bytes());
+        let computed: String = hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+        if computed != ca_pin {
+            anyhow::bail!("CA pin mismatch — possible MITM (expected {ca_pin}, got {computed})");
+        }
+        info!("CA certificate pin verified");
+    }
+
     Ok(body)
+}
+
+/// Save provisioned certs to disk and update config TOML with [tls] section
+fn save_provisioned_certs(_config: &Config, ca_cert: &[u8], client_cert: &[u8], client_key: &[u8]) -> Result<()> {
+    let cert_dir = std::path::PathBuf::from("/etc/pulse/certs");
+    std::fs::create_dir_all(&cert_dir)?;
+
+    let ca_path = cert_dir.join("ca.pem");
+    let cert_path = cert_dir.join("client.pem");
+    let key_path = cert_dir.join("client-key.pem");
+
+    std::fs::write(&ca_path, ca_cert)?;
+    std::fs::write(&cert_path, client_cert)?;
+    std::fs::write(&key_path, client_key)?;
+
+    // Update config TOML to include [tls] section
+    let config_path = std::env::args().nth(1).unwrap_or_else(|| "/etc/pulse-agent.toml".into());
+    if std::path::Path::new(&config_path).exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        if !content.contains("[tls]") {
+            let tls_section = format!(
+                "\n[tls]\nca_cert = \"{}\"\nclient_cert = \"{}\"\nclient_key = \"{}\"\n",
+                ca_path.display(),
+                cert_path.display(),
+                key_path.display()
+            );
+            std::fs::write(&config_path, format!("{content}{tls_section}"))?;
+        }
+    }
+
+    Ok(())
 }
