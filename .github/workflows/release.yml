@@ -11,56 +11,64 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            arch: x86_64
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            arch: aarch64
-    runs-on: ${{ matrix.os }}
+  build-x86:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.target }}
-
-      - name: Install cross-compilation tools
+          key: release-x86_64
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools protobuf-compiler
+      - name: Build
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler musl-tools
-          if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu musl-dev
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          fi
-
-      - name: Build agent
-        run: cargo build --release -p pulse-agent --target ${{ matrix.target }}
-
-      - name: Build master
-        run: cargo build --release -p pulse-master --target ${{ matrix.target }}
-
-      - name: Package binaries
+          cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
+          cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
+      - name: Package
         run: |
           mkdir -p dist-out
-          cp target/${{ matrix.target }}/release/pulse-agent dist-out/pulse-agent-linux-${{ matrix.arch }}
-          cp target/${{ matrix.target }}/release/pulse-master dist-out/pulse-master-linux-${{ matrix.arch }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+          cp target/x86_64-unknown-linux-musl/release/pulse-agent dist-out/pulse-agent-linux-x86_64
+          cp target/x86_64-unknown-linux-musl/release/pulse-master dist-out/pulse-master-linux-x86_64
+          ls -lh dist-out/
+      - uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.arch }}
+          name: binaries-x86_64
+          path: dist-out/
+
+  build-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-aarch64
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Build with cross
+        run: |
+          cross build --release -p pulse-agent --target aarch64-unknown-linux-musl
+          cross build --release -p pulse-master --target aarch64-unknown-linux-musl
+      - name: Package
+        run: |
+          mkdir -p dist-out
+          cp target/aarch64-unknown-linux-musl/release/pulse-agent dist-out/pulse-agent-linux-aarch64
+          cp target/aarch64-unknown-linux-musl/release/pulse-master dist-out/pulse-master-linux-aarch64
+          ls -lh dist-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-aarch64
           path: dist-out/
 
   release:
-    needs: build
+    needs: [build-x86, build-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +76,6 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
