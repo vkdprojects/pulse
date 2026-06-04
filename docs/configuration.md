@@ -2,13 +2,16 @@
 
 ## Master (variáveis de ambiente)
 
-| Variável | Obrigatória | Default | Descrição |
-|---|---|---|---|
-| `DATABASE_URL` | Não | _(sem DB)_ | Connection string PostgreSQL/TimescaleDB |
-| `PULSE_LISTEN` | Não | `[::1]:50051` | Endereço de escuta gRPC |
-| `PULSE_TLS_DIR` | Não | _(inseguro)_ | Diretório com `ca.pem`, `server.pem`, `server-key.pem` |
-| `PULSE_REGISTER_TOKEN` | Não | _(aceita todos)_ | Token para autenticar agents no registro |
-| `RUST_LOG` | Não | `info` | Nível de log (trace, debug, info, warn, error) |
+O master é configurado exclusivamente por variáveis de ambiente. Na instalação via script, os defaults já funcionam — configure apenas o que precisar ajustar.
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `PULSE_LISTEN` | `[::]:50051` | Endereço de escuta gRPC |
+| `PULSE_TLS_DIR` | `/etc/pulse` | Diretório para certs (auto-criado no boot) |
+| `DATABASE_URL` | _(SQLite)_ | Se `postgres://...`, usa TimescaleDB |
+| `PULSE_REGISTER_TOKEN` | _(auto-gerado)_ | Token para autenticar agents (formato `ca_pin::secret`) |
+| `PULSE_RETENTION_DAYS` | `30` | Dias para manter métricas antes de deletar |
+| `RUST_LOG` | `info` | Nível de log (trace, debug, info, warn, error) |
 
 ### Alertas
 
@@ -16,11 +19,31 @@
 |---|---|---|
 | `PULSE_ALERT_WEBHOOK` | _(desabilitado)_ | URL do webhook (Telegram/Slack/Discord/genérico) |
 | `PULSE_ALERT_TELEGRAM_CHAT_ID` | — | Chat ID para Telegram |
-| `PULSE_ALERT_CPU_PCT` | `90` | Threshold CPU (%) para alerta |
-| `PULSE_ALERT_MEM_PCT` | `90` | Threshold memória (%) para alerta |
-| `PULSE_ALERT_BW_MBPS` | `100` | Threshold bandwidth (MB/s) para alerta |
+| `PULSE_ALERT_CPU_PCT` | `90` | Threshold CPU (%) |
+| `PULSE_ALERT_MEM_PCT` | `90` | Threshold memória (%) |
+| `PULSE_ALERT_BW_MBPS` | `100` | Threshold bandwidth (MB/s) |
 
-## Agent (`/etc/pulse-agent.toml`)
+### Modificar configuração
+
+```bash
+# Via systemd override (recomendado)
+sudo systemctl edit pulse-master
+```
+
+```ini
+[Service]
+Environment=PULSE_RETENTION_DAYS=60
+Environment=PULSE_ALERT_WEBHOOK=https://api.telegram.org/bot<TOKEN>/sendMessage
+Environment=PULSE_ALERT_TELEGRAM_CHAT_ID=123456
+```
+
+```bash
+sudo systemctl restart pulse-master
+```
+
+## Agent (`/etc/pulse/agent.toml`)
+
+Gerado automaticamente pelo install script. Edite apenas se precisar ajustar algo.
 
 ```toml
 # Endpoint do master
@@ -32,20 +55,26 @@ metrics_interval_ms = 10000
 # Labels para agrupar/filtrar agents
 labels = ["prod", "datacenter-sp"]
 
-# Token de autenticação (deve bater com PULSE_REGISTER_TOKEN do master)
-auth_token = "meu-token-secreto"
+# Token de autenticação (formato ca_pin::secret)
+auth_token = "sha256pin::secret"
 
-# Configuração TLS (omitir para conexão insegura)
+# Preenchido automaticamente após primeiro registro:
 [tls]
-ca_cert = "/etc/pulse/ca.pem"
-client_cert = "/etc/pulse/agent.pem"
-client_key = "/etc/pulse/agent-key.pem"
-domain_name = "master.example.com"
+ca_cert = "/etc/pulse/certs/ca.pem"
+client_cert = "/etc/pulse/certs/client.pem"
+client_key = "/etc/pulse/certs/client-key.pem"
+domain_name = "master"
 ```
 
-### Comportamento sem config
+### Campos
 
-Se `/etc/pulse-agent.toml` não existir, usa defaults:
-- Conecta em `http://[::1]:50051` (localhost, inseguro)
-- Intervalo de 10 segundos
-- Sem labels, sem auth token
+| Campo | Default | Descrição |
+|---|---|---|
+| `master_endpoint` | `http://[::1]:50051` | URL do master |
+| `metrics_interval_ms` | `10000` | Intervalo de coleta (ms) |
+| `labels` | `[]` | Tags para agrupar agents |
+| `auth_token` | `""` | Token com CA pin para bootstrap |
+| `tls.ca_cert` | — | CA cert (preenchido após registro) |
+| `tls.client_cert` | — | Client cert (preenchido após registro) |
+| `tls.client_key` | — | Client key (preenchido após registro) |
+| `tls.domain_name` | `localhost` | Domain para validação TLS |

@@ -1,109 +1,39 @@
 # Instalação do Master
 
-O `pulse-master` é o servidor central que recebe métricas, persiste no TimescaleDB, e envia comandos aos agents.
+O `pulse-master` é o servidor central que recebe métricas, persiste dados, e envia comandos aos agents.
 
-## Pré-requisitos
+**Binário estático ~5.4 MB. ~5 MB RAM. SQLite embedded. Zero dependências externas.**
 
-- Linux x86_64 (Debian/Ubuntu recomendado)
-- TimescaleDB (PostgreSQL com extensão)
-- Portas: 50051 (gRPC), 8080 (health)
-
-## 1. Instalar TimescaleDB
+## Instalação (1 comando)
 
 ```bash
-# Ubuntu/Debian
-sudo apt install -y postgresql-common
-sudo /usr/share/postgresql-common/pgdg/apt.repository.sh
-sudo apt install -y postgresql-17 timescaledb-2-postgresql-17
-
-# Habilitar extensão
-sudo timescaledb-tune --yes
-sudo systemctl restart postgresql
-
-# Criar database
-sudo -u postgres createdb pulse
-sudo -u postgres createuser pulse --login
-sudo -u postgres psql -c "ALTER USER pulse PASSWORD 'SENHA_SEGURA';"
-sudo -u postgres psql -c "GRANT ALL ON DATABASE pulse TO pulse;"
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
 ```
 
-## 2. Instalar o binário
+O script:
+1. Detecta arquitetura (x86_64 / aarch64)
+2. Baixa o binário do GitHub Releases
+3. Gera certificados TLS automaticamente (`/etc/pulse/`)
+4. Gera token de registro com CA pin (formato `sha256(ca.pem)::secret`)
+5. Cria e inicia o systemd service
+6. Mostra o one-liner para instalar agents
+
+**Pronto.** O master está rodando com SQLite, TLS, e token — tudo automático.
+
+## O que acontece no primeiro boot
+
+- `PULSE_TLS_DIR` é criado automaticamente (default: `/etc/pulse/`)
+- CA key persiste em `ca-key.pem` para sobreviver restarts
+- Token é gerado e exibido no output da instalação
+- SQLite database é criada (zero config)
+- REST API inicia em `:8080`
+- gRPC inicia em `0.0.0.0:50051`
+
+## Verificar
 
 ```bash
-# Baixar do CI (GitHub Actions artifacts) ou compilar:
-cargo build --release -p pulse-master --target x86_64-unknown-linux-musl
-
-# Instalar
-sudo cp target/x86_64-unknown-linux-musl/release/pulse-master /usr/local/bin/
-sudo chmod +x /usr/local/bin/pulse-master
-```
-
-## 3. Gerar certificados TLS
-
-```bash
-sudo mkdir -p /etc/pulse
-pulse-master gen-certs /etc/pulse
-
-# Arquivos gerados:
-# /etc/pulse/ca.pem          — CA raiz (distribuir para agents)
-# /etc/pulse/server.pem      — Cert do master
-# /etc/pulse/server-key.pem  — Chave privada do master
-# /etc/pulse/client.pem      — Cert para primeiro agent
-# /etc/pulse/client-key.pem  — Chave para primeiro agent
-```
-
-## 4. Configurar environment
-
-Criar `/etc/pulse-master.env`:
-
-```bash
-DATABASE_URL=postgres://pulse:SENHA_SEGURA@localhost:5432/pulse
-PULSE_LISTEN=0.0.0.0:50051
-PULSE_TLS_DIR=/etc/pulse
-PULSE_REGISTER_TOKEN=token-secreto-compartilhado
-RUST_LOG=info
-
-# Alertas (opcional)
-PULSE_ALERT_WEBHOOK=https://api.telegram.org/bot<TOKEN>/sendMessage
-PULSE_ALERT_TELEGRAM_CHAT_ID=123456
-PULSE_ALERT_CPU_PCT=90
-PULSE_ALERT_MEM_PCT=90
-PULSE_ALERT_BW_MBPS=100
-```
-
-## 5. Instalar systemd service
-
-```bash
-sudo tee /etc/systemd/system/pulse-master.service << 'EOF'
-[Unit]
-Description=Vixpi Pulse Master
-After=network-online.target postgresql.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/pulse-master.env
-ExecStart=/usr/local/bin/pulse-master
-Restart=always
-RestartSec=5
-
-NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=/etc/pulse
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now pulse-master
-```
-
-## 6. Verificar
-
-```bash
-# Status
-sudo systemctl status pulse-master
+# Status do serviço
+systemctl status pulse-master
 
 # Health check
 curl http://localhost:8080/health
@@ -113,20 +43,42 @@ curl http://localhost:8080/health
 journalctl -u pulse-master -f
 ```
 
-## Firewall
+## Versão específica
 
 ```bash
-# Abrir porta gRPC para agents
-sudo ufw allow 50051/tcp comment "Pulse gRPC"
-# Health endpoint (apenas rede interna)
-sudo ufw allow from 10.0.0.0/8 to any port 8080
+VERSION=v0.2.0 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
+```
+
+## Repo privado
+
+```bash
+GITHUB_TOKEN=ghp_xxx curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
 ```
 
 ## Atualização
 
+Re-rode o mesmo comando. O script é idempotente — para o serviço, substitui o binário, reinicia.
+
+## Firewall
+
 ```bash
-# Substituir binário e restart
-sudo systemctl stop pulse-master
-sudo cp pulse-master-novo /usr/local/bin/pulse-master
-sudo systemctl start pulse-master
+sudo ufw allow 50051/tcp comment "Pulse gRPC"
+sudo ufw allow 8080/tcp comment "Pulse REST API"
 ```
+
+## Escalar com TimescaleDB (opcional)
+
+Por default o master usa **SQLite embedded**. Para escalar para 100+ agents ou integrar Grafana:
+
+```bash
+systemctl stop pulse-master
+
+# Adicionar DATABASE_URL:
+systemctl edit pulse-master
+# [Service]
+# Environment=DATABASE_URL=postgres://pulse:senha@localhost:5432/pulse
+
+systemctl start pulse-master
+```
+
+O master detecta `postgres://` na URL e ativa: hypertables, compression, continuous aggregates, retention policy.

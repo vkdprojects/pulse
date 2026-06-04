@@ -1,6 +1,6 @@
 # REST API
 
-O master expõe uma REST API na porta **8080** para consulta de dados e operações.
+O master expõe uma REST API na porta **8080**.
 
 Base URL: `http://MASTER_IP:8080`
 
@@ -17,6 +17,16 @@ GET /health
 ```json
 {"status": "ok"}
 ```
+
+---
+
+### CA Certificate
+
+```
+GET /api/ca
+```
+
+Retorna o certificado CA em formato PEM (`text/plain`). Usado pelo agent no TLS bootstrap.
 
 ---
 
@@ -38,14 +48,6 @@ Retorna todos os agents registrados com status.
       "arch": "x86_64",
       "version": "0.1.0",
       "status": "online"
-    },
-    {
-      "id": "agent-0002",
-      "hostname": "server-eu-west-1",
-      "os": "linux",
-      "arch": "aarch64",
-      "version": "0.1.0",
-      "status": "offline"
     }
   ]
 }
@@ -77,7 +79,8 @@ Retorna as últimas 20 leituras do agent.
 ```
 
 ---
-### Info de um Agent (status + sessions)
+
+### Sessions / Info de um Agent
 
 ```
 GET /api/agents/:id/sessions
@@ -92,10 +95,7 @@ GET /api/agents/:id/sessions
 }
 ```
 
-> **Nota:** SSH sessions em tempo real são transmitidas via gRPC stream. Este endpoint mostra o status atual do agent. Para sessões em tempo real, use o Grafana ou consulte diretamente o stream de métricas.
-
 ---
-
 
 ## Exemplos com curl
 
@@ -103,21 +103,25 @@ GET /api/agents/:id/sessions
 # Health
 curl http://localhost:8080/health
 
+# CA cert
+curl http://localhost:8080/api/ca
+
 # Listar agents
 curl http://localhost:8080/api/agents
 
-# Métricas do agent-0001
+# Métricas
 curl http://localhost:8080/api/agents/agent-0001/metrics
+
+# Info do agent
+curl http://localhost:8080/api/agents/agent-0001/sessions
 ```
 
----
-
-## Uso com jq (formatar output)
+## Uso com jq
 
 ```bash
 # Agents online
 curl -s http://localhost:8080/api/agents | jq '.agents[] | select(.status == "online")'
 
-# CPU% atual de cada agent
+# CPU% atual
 curl -s http://localhost:8080/api/agents/agent-0001/metrics | jq '.metrics[0].cpu_pct'
 ```

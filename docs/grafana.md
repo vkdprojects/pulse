@@ -1,8 +1,14 @@
 # Grafana Dashboard
 
-## Acesso rápido (Docker)
+> Grafana é **opcional**. Requer TimescaleDB (PostgreSQL) como backend — não funciona com SQLite.
 
-Com `docker compose up`, Grafana está em **http://localhost:3000**
+## Via Docker Compose (mais fácil)
+
+```bash
+docker compose up --build
+```
+
+Grafana disponível em **http://localhost:3000**
 
 - User: `admin`
 - Password: `pulse`
@@ -10,14 +16,20 @@ Com `docker compose up`, Grafana está em **http://localhost:3000**
 
 ## Setup manual
 
-1. Adicionar datasource PostgreSQL:
-   - URL: `db:5432` (ou IP do TimescaleDB)
+1. Configurar master com TimescaleDB:
+   ```bash
+   sudo systemctl edit pulse-master
+   # [Service]
+   # Environment=DATABASE_URL=postgres://pulse:senha@localhost:5432/pulse
+   ```
+
+2. Adicionar datasource PostgreSQL no Grafana:
+   - URL: `localhost:5432`
    - Database: `pulse`
    - User: `pulse`
-   - TLS: off (ou configure)
    - TimescaleDB: **habilitado**
 
-2. Importar dashboard:
+3. Importar dashboard:
    - Grafana → Dashboards → Import
    - Upload `grafana/dashboard.json`
 
@@ -32,10 +44,10 @@ Com `docker compose up`, Grafana está em **http://localhost:3000**
 | Container Memory | `mem_usage` por container |
 | Agents Inventory | Tabela com id, hostname, os, arch, last_seen |
 
-## Queries customizadas úteis
+## Queries customizadas
 
 ```sql
--- CPU médio por hora (usa continuous aggregate)
+-- CPU médio por hora (continuous aggregate)
 SELECT bucket, agent_id, avg_cpu_bp/100.0 as cpu_pct
 FROM metrics_hourly
 WHERE bucket > now() - interval '24 hours';

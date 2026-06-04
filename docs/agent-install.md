@@ -1,101 +1,82 @@
 # Instalação do Agent
 
-O `pulse-agent` é o daemon que roda em cada servidor monitorado. Binário de 1.9 MB, 2-5 MB RAM.
+O `pulse-agent` é o daemon que roda em cada servidor monitorado. Binário de 3.0 MB, 2-5 MB RAM.
 
-## Pré-requisitos
-
-- Linux x86_64 ou aarch64
-- Acesso de rede ao master (porta 50051)
-
-## 1. Instalar o binário
+## Instalação (1 comando)
 
 ```bash
-# Copiar do master ou baixar do CI
-scp master:/usr/local/bin/pulse-agent /tmp/
-
-# Instalar
-sudo cp /tmp/pulse-agent /usr/local/bin/
-sudo chmod +x /usr/local/bin/pulse-agent
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=token-mostrado-no-install sudo sh -
 ```
 
-## 2. Copiar certificados TLS
+> O token é exibido no output da instalação do master. Formato: `sha256(ca.pem)::secret`
 
-```bash
-sudo mkdir -p /etc/pulse
+O script:
+1. Detecta arquitetura (x86_64 / aarch64)
+2. Baixa o binário do GitHub Releases
+3. Cria config em `/etc/pulse/agent.toml`
+4. Cria e inicia o systemd service
 
-# Copiar do master (gerados com pulse-master gen-certs)
-scp master:/etc/pulse/ca.pem /etc/pulse/
-scp master:/etc/pulse/client.pem /etc/pulse/agent.pem
-scp master:/etc/pulse/client-key.pem /etc/pulse/agent-key.pem
-```
+**Pronto.** O agent conecta, valida TLS, registra, e começa a enviar métricas.
 
-> **Nota:** Em produção com auto-provisioning, os agents recebem certificados automaticamente no registro. Os certs manuais são para o bootstrap inicial.
+## TLS Bootstrap (automático, zero intervenção)
 
-## 3. Criar configuração
+O agent faz tudo sozinho:
 
-```bash
-sudo tee /etc/pulse-agent.toml << 'EOF'
-master_endpoint = "https://MASTER_IP:50051"
-metrics_interval_ms = 10000
-labels = ["prod", "us-east-1"]
-auth_token = "token-secreto-compartilhado"
+1. Parseia token → extrai `ca_pin` e `secret`
+2. Busca CA cert via HTTP GET `master:8080/api/ca`
+3. Valida `sha256(ca_cert)` contra `ca_pin` do token (anti-MITM)
+4. Conecta gRPC usando o CA validado
+5. Faz Register com o `secret` → recebe client cert do master
+6. Salva certs em `/etc/pulse/certs/` + atualiza `agent.toml` com seção `[tls]`
+7. Próximo boot: usa mTLS direto (sem re-buscar CA)
 
-[tls]
-ca_cert = "/etc/pulse/ca.pem"
-client_cert = "/etc/pulse/agent.pem"
-client_key = "/etc/pulse/agent-key.pem"
-domain_name = "master"
-EOF
-```
+**NÃO precisa copiar certs manualmente. NÃO precisa instalar nada antes.**
 
-### Campos da configuração
-
-| Campo | Descrição | Default |
-|---|---|---|
-| `master_endpoint` | URL do master (https para mTLS) | `http://[::1]:50051` |
-| `metrics_interval_ms` | Intervalo de coleta em ms | `10000` |
-| `labels` | Tags para agrupar agents | `[]` |
-| `auth_token` | Token de autenticação para registro | `""` |
-| `tls.ca_cert` | Caminho do CA cert | — |
-| `tls.client_cert` | Caminho do client cert | — |
-| `tls.client_key` | Caminho do client key | — |
-| `tls.domain_name` | Domain name para validação TLS | `localhost` |
-
-## 4. Instalar systemd service
-
-```bash
-# Usar o script incluído:
-sudo ./dist/install.sh /usr/local/bin/pulse-agent
-
-# Ou manualmente:
-sudo cp dist/pulse-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now pulse-agent
-```
-
-## 5. Verificar
+## Verificar
 
 ```bash
 # Status
-sudo systemctl status pulse-agent
+systemctl status pulse-agent
 
-# Logs (deve mostrar "registered with master")
+# Logs (deve mostrar "registered" ou "connected")
 journalctl -u pulse-agent -f
 
-# No master, verificar:
-# - Agent aparece nos logs
-# - Métricas no banco: psql -U pulse -c "SELECT * FROM agents;"
+# No master, confirmar:
+curl http://MASTER_IP:8080/api/agents
 ```
 
 ## Múltiplos agents
 
-Repita os passos 1-4 em cada servidor. Cada agent recebe um ID único no registro.
+Rode o mesmo comando em cada servidor. Cada agent recebe um ID único no registro.
 
-## Sem TLS (dev/teste)
+## Versão específica
 
-```toml
-master_endpoint = "http://MASTER_IP:50051"
-metrics_interval_ms = 5000
+```bash
+VERSION=v0.2.0 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=xxx sudo sh -
 ```
 
-Sem seção `[tls]`, o agent conecta sem criptografia. **Não usar em produção.**
+## Atualização
+
+Re-rode o comando de instalação. O script para, substitui, reinicia.
+
+## Config gerada
+
+O script gera `/etc/pulse/agent.toml`:
+
+```toml
+master_endpoint = "https://MASTER_IP:50051"
+metrics_interval_ms = 10000
+auth_token = "sha256pin::secret"
+```
+
+Após o primeiro registro, o agent adiciona automaticamente:
+
+```toml
+[tls]
+ca_cert = "/etc/pulse/certs/ca.pem"
+client_cert = "/etc/pulse/certs/client.pem"
+client_key = "/etc/pulse/certs/client-key.pem"
+domain_name = "master"
+```

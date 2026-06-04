@@ -1,6 +1,10 @@
-# Docker & Dev Environment
+# Docker & Grafana (opcional)
 
-## Stack completa (produção-like)
+> **Docker NÃO é requisito para usar o Vixpi Pulse.** A instalação padrão é via `curl | sh` com SQLite embedded.
+>
+> Docker Compose é útil para: demo rápida, desenvolvimento local com Grafana, ou ambiente com TimescaleDB.
+
+## Demo Mode (Docker Compose + Grafana)
 
 ```bash
 docker compose up --build
@@ -11,8 +15,8 @@ Sobe: TimescaleDB + Master + 3 Agents + Grafana
 | Serviço | Porta | Descrição |
 |---|---|---|
 | `db` | 5432 | TimescaleDB (PostgreSQL 17) |
-| `master` | 50051 | pulse-master com mTLS |
-| `agent-1/2/3` | — | 3 agents Linux (server-us-east-1, eu-west-1, sa-east-1) |
+| `master` | 50051 | pulse-master com TLS |
+| `agent-1/2/3` | — | 3 agents Linux simulados |
 | `grafana` | 3000 | Dashboard pré-configurado (admin/pulse) |
 
 ## Teste E2E automatizado
@@ -26,14 +30,14 @@ Valida 7 checks:
 2. Métricas persistidas
 3. CPU data presente
 4. Memory data presente
-5. mTLS funcional
+5. TLS funcional
 6. Agents únicos
 7. Hypertables ativas
 
-## Dev local (sem Docker para o app)
+## Dev local
 
 ```bash
-# 1. Sobe apenas o banco
+# 1. Sobe apenas o banco (para usar TimescaleDB localmente)
 just dev-up
 
 # 2. Roda master local (terminal 1)
@@ -42,14 +46,11 @@ just dev-master
 # 3. Roda agent local (terminal 2)
 just dev-agent
 
-# 4. Consulta DB
-docker compose -f docker-compose.dev.yml exec db psql -U pulse
-
-# 5. Para tudo
+# 4. Para tudo
 just dev-down
 ```
 
-## Consultas úteis no DB
+## Consultas úteis no DB (quando usando TimescaleDB)
 
 ```sql
 -- Agents registrados

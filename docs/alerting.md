@@ -4,17 +4,25 @@
 
 O master monitora métricas de cada agent. Quando um threshold é ultrapassado por **3 leituras consecutivas**, dispara um alerta via webhook.
 
-Quando o valor volta ao normal, o contador reseta (não dispara "resolved" — pode ser adicionado no futuro).
+Quando o valor volta ao normal, o contador reseta.
 
 ## Configurar
 
 ```bash
-# No master (.env ou variáveis de ambiente)
-PULSE_ALERT_WEBHOOK=https://api.telegram.org/bot<TOKEN>/sendMessage
-PULSE_ALERT_TELEGRAM_CHAT_ID=123456789
-PULSE_ALERT_CPU_PCT=90
-PULSE_ALERT_MEM_PCT=90
-PULSE_ALERT_BW_MBPS=100
+sudo systemctl edit pulse-master
+```
+
+```ini
+[Service]
+Environment=PULSE_ALERT_WEBHOOK=https://api.telegram.org/bot<TOKEN>/sendMessage
+Environment=PULSE_ALERT_TELEGRAM_CHAT_ID=123456789
+Environment=PULSE_ALERT_CPU_PCT=90
+Environment=PULSE_ALERT_MEM_PCT=90
+Environment=PULSE_ALERT_BW_MBPS=100
+```
+
+```bash
+sudo systemctl restart pulse-master
 ```
 
 ## Telegram
@@ -44,8 +52,6 @@ PULSE_ALERT_WEBHOOK=https://hooks.slack.com/services/T.../B.../xxx
 ```bash
 PULSE_ALERT_WEBHOOK=https://discord.com/api/webhooks/<ID>/<TOKEN>
 ```
-
-Slack e Discord usam o mesmo formato (`{"content": "..."}`).
 
 ## Webhook genérico
 

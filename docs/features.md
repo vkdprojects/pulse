@@ -1,9 +1,5 @@
 # Funcionalidades
 
-Lista completa de tudo que o Vixpi Pulse coleta e faz.
-
----
-
 ## 📊 Métricas Coletadas
 
 ### CPU
@@ -134,22 +130,30 @@ Streaming de logs em tempo real.
 
 ## 🔐 Segurança
 
-- **mTLS**: todas as conexões são mutual TLS (rustls)
-- **Auto-provisioning**: master gera e envia cert ao agent no registro
-- **Auth token**: `PULSE_REGISTER_TOKEN` impede registro não autorizado
+- **TLS automático**: certs gerados no primeiro boot do master
+- **CA pin no token**: previne ataques MITM no bootstrap
+- **Client certs automáticos**: emitidos no Register, usados em boots subsequentes
+- **mTLS completo**: após primeiro registro, todas as conexões usam mutual TLS
+- **Auth token**: impede registro não autorizado
 - **Systemd hardening**: NoNewPrivileges, ProtectSystem=strict
 - **Zero unsafe**: exceto 1 syscall (statvfs)
 - **Zero vulnerabilidades**: `cargo audit` limpo
 
 ---
 
-## 💾 Persistência (TimescaleDB)
+## 💾 Persistência
 
-- **Hypertables**: auto-partição por tempo
-- **Compressão**: chunks >7 dias comprimidos (~90% redução)
-- **Retention**: chunks >90 dias removidos automaticamente
-- **Continuous aggregates**: médias horárias pré-computadas
-- **Agent status**: online/offline com `last_seen_at`
+### SQLite (default)
+- Zero config, zero dependências
+- Database criada automaticamente no boot
+- Retention worker deleta dados > `PULSE_RETENTION_DAYS` (default 30)
+
+### TimescaleDB (opcional, via `DATABASE_URL`)
+- Hypertables: auto-partição por tempo
+- Compressão: chunks >7 dias comprimidos (~90% redução)
+- Retention: configurável
+- Continuous aggregates: médias horárias pré-computadas
+- Integração nativa com Grafana
 
 ---
 
@@ -159,3 +163,4 @@ Streaming de logs em tempo real.
 - **Reconnect**: exponential backoff (1s → 60s)
 - **Offline buffer**: ring buffer de 100 métricas sobrevive desconexões
 - **Graceful shutdown**: SIGINT/SIGTERM fecha conexões corretamente
+- **Retention automática**: worker background deleta dados antigos

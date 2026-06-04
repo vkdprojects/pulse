@@ -1,50 +1,58 @@
-# Segurança & mTLS
+# Segurança & TLS
 
 ## Visão geral
 
-Toda comunicação entre agent e master usa **mutual TLS** (mTLS):
-- O agent valida o certificado do master (não conecta em impostor)
-- O master valida o certificado do agent (rejeita conexões sem cert)
-- Cert assinado por CA errada = **rejeitado**
+Toda comunicação entre agent e master usa TLS. Após o primeiro registro, passa a usar **mutual TLS** (mTLS) com client certs emitidos automaticamente.
 
-## Certificados
+## Fluxo de segurança
 
-### Gerar (desenvolvimento)
-```bash
-pulse-master gen-certs /etc/pulse
-```
+### Primeiro boot (bootstrap)
 
-Gera:
-- `ca.pem` — CA raiz (distribuir para todos)
-- `server.pem` / `server-key.pem` — Master
-- `client.pem` / `client-key.pem` — Primeiro agent
+1. Master gera CA + server cert no primeiro boot
+2. Master gera token no formato `sha256(ca.pem)::secret`
+3. Agent recebe o token via install script
+4. Agent busca CA cert via `GET master:8080/api/ca`
+5. Agent valida `sha256(ca_cert) == ca_pin` do token → **previne MITM**
+6. Agent conecta gRPC com server TLS (CA validado)
+7. Agent faz Register com o `secret` → master emite client cert
+8. Agent salva certs localmente
 
-### Auto-provisioning (produção)
+### Boots subsequentes (mTLS)
 
-Na produção, o master gera certificados automaticamente:
+- Agent usa client cert salvo → conexão mTLS completa
+- Sem necessidade de re-buscar CA ou token
+- Master valida client cert a cada conexão
 
-1. Agent conecta com `auth_token` (pode ser inseguro no primeiro contato)
-2. Master valida token, gera cert assinado pela CA interna
-3. Retorna `ca_cert` + `client_cert` + `client_key` no `RegisterResponse`
-4. Agent armazena certs e reconecta com mTLS
+## CA Pin (anti-MITM)
 
-> **Recomendação:** Para máxima segurança, faça o primeiro registro via rede interna ou VPN.
+O token contém o SHA-256 do CA cert. Isso garante que mesmo se um atacante interceptar a conexão HTTP para `/api/ca`, o agent detecta que o CA não bate com o pin e **rejeita a conexão**.
 
 ## Auth Token
 
-O `PULSE_REGISTER_TOKEN` (master) e `auth_token` (agent config) impedem que qualquer IP registre agents falsos.
+O `PULSE_REGISTER_TOKEN` impede que qualquer IP registre agents falsos. Sem token configurado no master = aceita qualquer registro (modo desenvolvimento).
 
-Sem token configurado no master = aceita qualquer registro (modo desenvolvimento).
+O token é gerado automaticamente na instalação do master.
+
+## Server vs Client cert
+
+- **Server NÃO exige client cert** na conexão inicial — necessário para permitir o bootstrap (Register)
+- **Após Register**, o agent tem client cert e todas as conexões subsequentes são mTLS
 
 ## Systemd Hardening
 
-O service do agent roda com:
+O service roda com:
 ```ini
 NoNewPrivileges=yes      # Não pode escalar privilégios
-ProtectSystem=strict     # Filesystem read-only (exceto /etc/pulse)
+ProtectSystem=strict     # Filesystem read-only (exceto paths necessários)
 ProtectHome=yes          # /home inacessível
 PrivateTmp=yes           # /tmp isolado
 ```
+
+## Persistência da CA
+
+A chave privada da CA (`ca-key.pem`) persiste em disco dentro de `PULSE_TLS_DIR`. Isso permite:
+- Reiniciar o master sem invalidar certs de agents existentes
+- Emitir novos client certs para novos agents
 
 ## Auditoria
 
