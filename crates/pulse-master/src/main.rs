@@ -77,13 +77,10 @@ async fn main() -> Result<()> {
     let mut builder = if tls_enabled {
         let cert = std::fs::read_to_string(format!("{tls_dir}/server.pem"))?;
         let key = std::fs::read_to_string(format!("{tls_dir}/server-key.pem"))?;
-        let ca_cert = std::fs::read_to_string(format!("{tls_dir}/ca.pem"))?;
 
-        let tls = ServerTlsConfig::new()
-            .identity(Identity::from_pem(&cert, &key))
-            .client_ca_root(tonic::transport::Certificate::from_pem(&ca_cert));
+        let tls = ServerTlsConfig::new().identity(Identity::from_pem(&cert, &key));
 
-        info!(%addr, "pulse-master starting with mTLS");
+        info!(%addr, "pulse-master starting with TLS (auth via token)");
         Server::builder().tls_config(tls)?
     } else {
         info!(%addr, "pulse-master starting (insecure)");
@@ -112,7 +109,8 @@ async fn main() -> Result<()> {
 
     // REST API (HTTP on :8080)
     {
-        let app = pulse_master::api::router(storage.clone());
+        let ca_pem = if tls_enabled { std::fs::read_to_string(format!("{tls_dir}/ca.pem")).ok() } else { None };
+        let app = pulse_master::api::router_with_ca(storage.clone(), ca_pem);
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
             info!("REST API on :8080");

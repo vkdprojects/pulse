@@ -89,35 +89,43 @@ need_root() {
 # ─── Download ──────────────────────────────────────────────────────
 
 download_binary() {
-    local name="$1" arch="$2" url
+    local name="$1" arch="$2"
 
     name="pulse-${name}"
-    local asset="${name}-linux-${arch}"
+    local asset_name="${name}-linux-${arch}"
 
-    if [ "$VERSION" = "latest" ]; then
-        url="https://github.com/${GITHUB_REPO}/releases/latest/download/${asset}"
-    else
-        url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset}"
-    fi
-
-    local auth=""
-    [ -n "$GITHUB_TOKEN" ] && auth="-H 'Authorization: token ${GITHUB_TOKEN}'"
-
-    info "Baixando ${name} (${arch})..."
-    if command -v curl >/dev/null 2>&1; then
-        if [ -n "$GITHUB_TOKEN" ]; then
-            curl -sfL -H "Authorization: token ${GITHUB_TOKEN}" -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Verifique a versão e acesso ao repo."
-        else
-            curl -sfL -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Se repo privado, passe GITHUB_TOKEN."
+    if [ -n "$GITHUB_TOKEN" ]; then
+        # Private repo: use GitHub REST API to download release asset
+        info "Baixando ${name} (${arch}) [private repo]..."
+        local release_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+        if [ "$VERSION" != "latest" ]; then
+            release_url="https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${VERSION}"
         fi
-    elif command -v wget >/dev/null 2>&1; then
-        if [ -n "$GITHUB_TOKEN" ]; then
-            wget -q --header="Authorization: token ${GITHUB_TOKEN}" -O "${INSTALL_DIR}/${name}" "$url" || err "Download falhou."
-        else
-            wget -q -O "${INSTALL_DIR}/${name}" "$url" || err "Download falhou."
+
+        local asset_id
+        asset_id=$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$release_url" | \
+            grep -B3 "\"name\": \"${asset_name}\"" | grep '"id"' | head -1 | grep -o '[0-9]\+')
+
+        if [ -z "$asset_id" ]; then
+            err "Asset '${asset_name}' não encontrado na release. Verifique VERSION e que a release existe."
         fi
+
+        curl -sfL \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset_id}" \
+            -o "${INSTALL_DIR}/${name}" || err "Download do asset falhou."
     else
-        err "curl ou wget necessário."
+        # Public repo: direct download
+        local url
+        if [ "$VERSION" = "latest" ]; then
+            url="https://github.com/${GITHUB_REPO}/releases/latest/download/${asset_name}"
+        else
+            url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset_name}"
+        fi
+
+        info "Baixando ${name} (${arch})..."
+        curl -sfL -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Se repo privado, passe GITHUB_TOKEN."
     fi
 
     chmod +x "${INSTALL_DIR}/${name}"

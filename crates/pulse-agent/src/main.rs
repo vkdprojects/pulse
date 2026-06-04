@@ -199,7 +199,41 @@ async fn build_channel(config: &Config) -> Result<Channel> {
             .identity(Identity::from_pem(&cert, &key));
 
         Ok(endpoint.tls_config(tls_config)?.connect().await?)
+    } else if config.master_endpoint.starts_with("https://") {
+        // Bootstrap: fetch CA cert from master's HTTP API, then connect with server-only TLS
+        let ca_pem = fetch_ca_from_master(&config.master_endpoint).await?;
+        let tls_config = ClientTlsConfig::new().domain_name("localhost").ca_certificate(Certificate::from_pem(&ca_pem));
+        Ok(endpoint.tls_config(tls_config)?.connect().await?)
     } else {
         Ok(endpoint.connect().await?)
     }
+}
+
+/// Fetch CA cert from master's REST API (HTTP :8080)
+async fn fetch_ca_from_master(grpc_endpoint: &str) -> Result<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Convert gRPC endpoint (https://host:50051) to HTTP host:8080
+    let host_port = grpc_endpoint.trim_start_matches("https://").trim_start_matches("http://");
+    let host = host_port.split(':').next().unwrap_or("localhost");
+    let addr = format!("{host}:8080");
+
+    info!(addr = %addr, "fetching CA certificate from master...");
+
+    let mut stream = tokio::net::TcpStream::connect(&addr).await?;
+    let req = format!("GET /api/ca HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).await?;
+
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await?;
+    let response = String::from_utf8_lossy(&buf);
+
+    // Extract body after \r\n\r\n
+    let body = response.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
+
+    if !body.contains("BEGIN CERTIFICATE") {
+        anyhow::bail!("invalid CA response from master at {addr}: {}", &body[..body.len().min(200)]);
+    }
+    info!("CA certificate obtained from master");
+    Ok(body)
 }
