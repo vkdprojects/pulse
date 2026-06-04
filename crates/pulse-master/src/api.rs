@@ -24,6 +24,7 @@ pub fn router_with_ca(storage: Storage, ca_pem: Option<String>) -> Router<()> {
         .route("/api/agents", axum::routing::get(list_agents))
         .route("/api/agents/{id}/metrics", axum::routing::get(get_metrics))
         .route("/api/agents/{id}/sessions", axum::routing::get(get_sessions))
+        .route("/api/agents/{id}/connections", axum::routing::get(get_connections))
         .with_state(state)
 }
 
@@ -64,6 +65,13 @@ async fn get_sessions(State(state): State<AppState>, Path(agent_id): Path<String
             "last_seen": r.2,
         })),
         Ok(None) => Json(json!({"error": "agent not found"})),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+async fn get_connections(State(state): State<AppState>, Path(agent_id): Path<String>) -> Json<Value> {
+    match state.storage.get_agent_connections(&agent_id).await {
+        Ok(conns) => Json(json!({"agent_id": agent_id, "connections": conns})),
         Err(e) => Json(json!({"error": e.to_string()})),
     }
 }

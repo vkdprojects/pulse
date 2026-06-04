@@ -504,6 +504,112 @@ fn read_cstr(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[..end]).to_string()
 }
 
+pub async fn collect_connections() -> Result<Vec<pulse_proto::pb::PortConnections>> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut port_map: HashMap<u16, HashSet<String>> = HashMap::new();
+
+    for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
+        let content = match fs::read_to_string(path).await {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let is_v6 = *path == "/proc/net/tcp6";
+
+        for line in content.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 4 {
+                continue;
+            }
+            // st = parts[3], 01 = ESTABLISHED
+            if parts[3] != "01" {
+                continue;
+            }
+            let local = parts[1];
+            let remote = parts[2];
+
+            let local_port = match local.rsplit_once(':') {
+                Some((_, p)) => u16::from_str_radix(p, 16).unwrap_or(0),
+                None => continue,
+            };
+
+            let remote_ip = match remote.rsplit_once(':') {
+                Some((ip_hex, _)) => {
+                    if is_v6 {
+                        parse_ipv6_hex(ip_hex)
+                    } else {
+                        parse_ipv4_hex(ip_hex)
+                    }
+                }
+                None => continue,
+            };
+
+            // Skip localhost
+            if remote_ip == "127.0.0.1" || remote_ip == "::1" || remote_ip == "0000:0000:0000:0000:0000:0000:0000:0001"
+            {
+                continue;
+            }
+
+            port_map.entry(local_port).or_default().insert(remote_ip);
+        }
+    }
+
+    let mut result: Vec<pulse_proto::pb::PortConnections> = port_map
+        .into_iter()
+        .map(|(port, ips)| {
+            let service = match port {
+                22 => "ssh",
+                80 => "http",
+                443 => "https",
+                3306 => "mysql",
+                5432 => "postgres",
+                6379 => "redis",
+                27017 => "mongodb",
+                8080 => "http-alt",
+                50051 => "grpc",
+                _ => "",
+            };
+            let service = if service.is_empty() { format!("port-{port}") } else { service.into() };
+            let mut remote_ips: Vec<String> = ips.into_iter().collect();
+            remote_ips.truncate(50);
+            pulse_proto::pb::PortConnections {
+                port: port as u32,
+                service,
+                active_count: remote_ips.len() as u32,
+                remote_ips,
+            }
+        })
+        .collect();
+
+    result.sort_by_key(|c| c.port);
+    Ok(result)
+}
+
+fn parse_ipv4_hex(hex: &str) -> String {
+    if hex.len() != 8 {
+        return hex.to_string();
+    }
+    let bytes = u32::from_str_radix(hex, 16).unwrap_or(0);
+    // /proc/net/tcp stores IPv4 in little-endian (host byte order on x86)
+    format!("{}.{}.{}.{}", bytes & 0xFF, (bytes >> 8) & 0xFF, (bytes >> 16) & 0xFF, (bytes >> 24) & 0xFF)
+}
+
+fn parse_ipv6_hex(hex: &str) -> String {
+    if hex.len() != 32 {
+        return hex.to_string();
+    }
+    // /proc/net/tcp6: 4 groups of 8 hex chars, each group is a 32-bit word in host byte order
+    let mut segments = Vec::with_capacity(8);
+    for i in 0..4 {
+        let word = u32::from_str_radix(&hex[i * 8..(i + 1) * 8], 16).unwrap_or(0);
+        let b = word.to_be_bytes();
+        // Swap to network order (each 4-byte group is in host/little-endian on x86)
+        segments.push(format!("{:02x}{:02x}", b[3], b[2]));
+        segments.push(format!("{:02x}{:02x}", b[1], b[0]));
+    }
+    segments.join(":")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -352,3 +352,18 @@ DO $$ BEGIN
     schedule_interval => INTERVAL '1 hour');
 EXCEPTION WHEN others THEN NULL;
 END $$;
+
+-- Connection metrics (TCP netflow)
+CREATE TABLE IF NOT EXISTS connection_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    agent_id TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    service TEXT NOT NULL,
+    active_count INTEGER NOT NULL,
+    remote_ips TEXT[] NOT NULL
+);
+SELECT create_hypertable('connection_metrics', by_range('time'), if_not_exists => TRUE);
+ALTER TABLE connection_metrics SET (timescaledb.compress, timescaledb.compress_segmentby = 'agent_id,port');
+DO $$ BEGIN PERFORM add_compression_policy('connection_metrics', INTERVAL '7 days'); EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN PERFORM add_retention_policy('connection_metrics', INTERVAL '90 days'); EXCEPTION WHEN others THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_conn_agent_time ON connection_metrics (agent_id, time DESC);

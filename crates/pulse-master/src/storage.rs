@@ -323,6 +323,21 @@ impl Storage {
                     .await?;
                 }
 
+                for conn in &payload.connections {
+                    sqlx::query(
+                        "INSERT INTO connection_metrics (time, agent_id, port, service, active_count, remote_ips)
+                         VALUES ($1, $2, $3, $4, $5, $6)",
+                    )
+                    .bind(time)
+                    .bind(&payload.agent_id)
+                    .bind(conn.port as i32)
+                    .bind(&conn.service)
+                    .bind(conn.active_count as i32)
+                    .bind(&conn.remote_ips)
+                    .execute(pool)
+                    .await?;
+                }
+
                 sqlx::query("UPDATE agents SET last_seen_at = NOW(), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
                     .execute(pool)
@@ -504,6 +519,22 @@ impl Storage {
                     .await?;
                 }
 
+                for conn in &payload.connections {
+                    let ips_json = serde_json::to_string(&conn.remote_ips).unwrap_or_default();
+                    sqlx::query(
+                        "INSERT INTO connection_metrics (time, agent_id, port, service, active_count, remote_ips)
+                         VALUES ($1, $2, $3, $4, $5, $6)",
+                    )
+                    .bind(&time_str)
+                    .bind(&payload.agent_id)
+                    .bind(conn.port as i32)
+                    .bind(&conn.service)
+                    .bind(conn.active_count as i32)
+                    .bind(&ips_json)
+                    .execute(pool)
+                    .await?;
+                }
+
                 sqlx::query("UPDATE agents SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
                     .execute(pool)
@@ -656,6 +687,46 @@ impl Storage {
         }
     }
 
+    pub async fn get_agent_connections(&self, agent_id: &str) -> Result<Vec<serde_json::Value>> {
+        match self {
+            Storage::Postgres(pool) => {
+                let rows: Vec<(i32, String, i32, Vec<String>)> = sqlx::query_as(
+                    "SELECT DISTINCT ON (port) port, service, active_count, remote_ips
+                     FROM connection_metrics WHERE agent_id = $1 ORDER BY port, time DESC",
+                )
+                .bind(agent_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "port": r.0, "service": r.1, "active_count": r.2, "remote_ips": r.3,
+                        })
+                    })
+                    .collect())
+            }
+            Storage::Sqlite(pool) => {
+                let rows: Vec<(i32, String, i32, String)> = sqlx::query_as(
+                    "SELECT port, service, active_count, remote_ips FROM connection_metrics
+                     WHERE agent_id = $1 GROUP BY port HAVING time = MAX(time) ORDER BY port",
+                )
+                .bind(agent_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows
+                    .iter()
+                    .map(|r| {
+                        let ips: Vec<String> = serde_json::from_str(&r.3).unwrap_or_default();
+                        serde_json::json!({
+                            "port": r.0, "service": r.1, "active_count": r.2, "remote_ips": ips,
+                        })
+                    })
+                    .collect())
+            }
+        }
+    }
+
     pub async fn delete_old_data(&self, retention_days: i64) -> Result<()> {
         let tables = [
             "metrics",
@@ -668,6 +739,7 @@ impl Storage {
             "gpu_metrics",
             "process_metrics",
             "ssh_sessions",
+            "connection_metrics",
         ];
 
         match self {

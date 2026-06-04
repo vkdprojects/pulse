@@ -139,3 +139,13 @@ CREATE TABLE IF NOT EXISTS ssh_sessions (
     pid INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_ssh_agent_time ON ssh_sessions (agent_id, time DESC);
+
+CREATE TABLE IF NOT EXISTS connection_metrics (
+    time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    agent_id TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    service TEXT NOT NULL,
+    active_count INTEGER NOT NULL,
+    remote_ips TEXT NOT NULL -- JSON array
+);
+CREATE INDEX IF NOT EXISTS idx_conn_agent_time ON connection_metrics (agent_id, time DESC);

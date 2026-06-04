@@ -25,6 +25,7 @@ message MetricsPayload {
   repeated DiskHealth disk_health = 13;
   uint32 battery_pct = 14;
   repeated SshSession ssh_sessions = 15;
+  repeated PortConnections connections = 16;
 }
 
 message SshSession {
@@ -201,6 +202,13 @@ message CommandResult {
   int32 exit_code = 1;
   bool timed_out = 2;
   string error = 3;
+}
+
+message PortConnections {
+  uint32 port = 1;
+  string service = 2;
+  uint32 active_count = 3;
+  repeated string remote_ips = 4;
 }
 
 // --- Registration ---
