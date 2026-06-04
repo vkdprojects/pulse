@@ -149,3 +149,11 @@ CREATE TABLE IF NOT EXISTS connection_metrics (
     remote_ips TEXT NOT NULL -- JSON array
 );
 CREATE INDEX IF NOT EXISTS idx_conn_agent_time ON connection_metrics (agent_id, time DESC);
+
+CREATE TABLE IF NOT EXISTS alerts_history (
+    time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    agent_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    message TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_agent_time ON alerts_history (agent_id, time DESC);

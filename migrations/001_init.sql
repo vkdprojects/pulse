@@ -367,3 +367,16 @@ ALTER TABLE connection_metrics SET (timescaledb.compress, timescaledb.compress_s
 DO $$ BEGIN PERFORM add_compression_policy('connection_metrics', INTERVAL '7 days'); EXCEPTION WHEN others THEN NULL; END $$;
 DO $$ BEGIN PERFORM add_retention_policy('connection_metrics', INTERVAL '90 days'); EXCEPTION WHEN others THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS idx_conn_agent_time ON connection_metrics (agent_id, time DESC);
+
+-- Alerts history
+CREATE TABLE IF NOT EXISTS alerts_history (
+    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    agent_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    message TEXT NOT NULL
+);
+SELECT create_hypertable('alerts_history', by_range('time'), if_not_exists => TRUE);
+ALTER TABLE alerts_history SET (timescaledb.compress, timescaledb.compress_segmentby = 'agent_id');
+DO $$ BEGIN PERFORM add_compression_policy('alerts_history', INTERVAL '7 days'); EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN PERFORM add_retention_policy('alerts_history', INTERVAL '90 days'); EXCEPTION WHEN others THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_alerts_agent_time ON alerts_history (agent_id, time DESC);

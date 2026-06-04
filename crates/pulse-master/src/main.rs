@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
 
     // Background: agent offline detection + retention
     {
-        let alerts = pulse_master::alerts::AlertEngine::new();
+        let alerts = pulse_master::alerts::AlertEngine::new().with_storage(storage.clone());
         tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(storage.clone(), alerts));
         tokio::spawn(run_retention_worker(storage.clone()));
     }

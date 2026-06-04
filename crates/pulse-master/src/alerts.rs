@@ -1,3 +1,4 @@
+use crate::storage::Storage;
 use pulse_proto::pb::MetricsPayload;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +11,7 @@ pub struct AlertEngine {
     webhook_url: Option<String>,
     cpu_threshold_bp: u32,
     mem_threshold_pct: u32,
+    storage: Option<Storage>,
 }
 
 struct AlertState {
@@ -35,7 +37,13 @@ impl AlertEngine {
             webhook_url,
             cpu_threshold_bp: cpu_threshold * 100,
             mem_threshold_pct: mem_threshold,
+            storage: None,
         }
+    }
+
+    pub fn with_storage(mut self, storage: Storage) -> Self {
+        self.storage = Some(storage);
+        self
     }
 
     pub async fn check(&self, payload: &MetricsPayload) {
@@ -95,6 +103,12 @@ impl AlertEngine {
 
     async fn fire(&self, agent_id: &str, alert_type: &str, message: &str) {
         warn!(agent_id, alert_type, message, "ALERT FIRED");
+
+        if let Some(ref storage) = self.storage
+            && let Err(e) = storage.insert_alert(agent_id, alert_type, message).await
+        {
+            warn!(error = %e, "failed to persist alert");
+        }
 
         if let Some(ref url) = self.webhook_url {
             let body = format_webhook_body(url, agent_id, alert_type, message);
