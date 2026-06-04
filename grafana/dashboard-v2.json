@@ -172,11 +172,223 @@
         }
       }
     },
+
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "CPU %",
+      "gridPos": { "x": 0, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT cpu_total_bp / 100.0 AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 107,
+      "type": "stat",
+      "title": "RAM %",
+      "gridPos": { "x": 4, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (mem_used::float / NULLIF(mem_total,0) * 100) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 108,
+      "type": "stat",
+      "title": "Swap %",
+      "gridPos": { "x": 8, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (swap_used::float / NULLIF(swap_total,0) * 100) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 50 },
+              { "color": "orange", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 109,
+      "type": "stat",
+      "title": "Cgroup Mem %",
+      "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (cgroup_usage::float / NULLIF(cgroup_limit,0) * 100) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' AND cgroup_limit > 0 ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "noValue": "N/A",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 115,
+      "type": "stat",
+      "title": "RAM (usada / total)",
+      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT mem_used AS used, mem_total AS total FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "purple" } } }
+    },
+    {
+      "id": 116,
+      "type": "stat",
+      "title": "Load 1m / por CPU",
+      "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT (load_1m::float / 100) / NULLIF(array_length(cpu_cores_bp,1),0) AS value FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" },
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 0.7 },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        }
+      }
+    },
+
     {
       "id": 110,
       "type": "gauge",
       "title": "CPU %",
-      "gridPos": { "x": 0, "y": 4, "w": 5, "h": 6 },
+      "gridPos": { "x": 0, "y": 8, "w": 5, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -211,7 +423,7 @@
       "id": 111,
       "type": "gauge",
       "title": "Memória %",
-      "gridPos": { "x": 5, "y": 4, "w": 5, "h": 6 },
+      "gridPos": { "x": 5, "y": 8, "w": 5, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -246,7 +458,7 @@
       "id": 112,
       "type": "gauge",
       "title": "Swap %",
-      "gridPos": { "x": 10, "y": 4, "w": 5, "h": 6 },
+      "gridPos": { "x": 10, "y": 8, "w": 5, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -281,7 +493,7 @@
       "id": 113,
       "type": "gauge",
       "title": "Load 1m / por CPU",
-      "gridPos": { "x": 15, "y": 4, "w": 4, "h": 6 },
+      "gridPos": { "x": 15, "y": 8, "w": 4, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -317,7 +529,7 @@
       "id": 114,
       "type": "gauge",
       "title": "Procs Rodando",
-      "gridPos": { "x": 19, "y": 4, "w": 5, "h": 6 },
+      "gridPos": { "x": 19, "y": 8, "w": 5, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -348,11 +560,49 @@
         }
       }
     },
+
+    {
+      "id": 117,
+      "type": "bargauge",
+      "title": "CPU por núcleo (%)",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 6 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT 'core ' || lpad((idx-1)::text, 2, '0') AS metric, c / 100.0 AS value FROM (SELECT unnest(cpu_cores_bp) AS c, generate_subscripts(cpu_cores_bp, 1) AS idx FROM metrics WHERE agent_id ~ '${agent:regex}' ORDER BY time DESC LIMIT 1) t ORDER BY idx",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "value" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "#EAB839", "value": 70 },
+              { "color": "orange", "value": 85 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+
     {
       "id": 120,
       "type": "timeseries",
       "title": "CPU (total + por core)",
-      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -380,8 +630,8 @@
     {
       "id": 121,
       "type": "timeseries",
-      "title": "Interfaces de Rede (rx/tx)",
-      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
+      "title": "Interfaces de Rede (rx / tx)",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -401,11 +651,12 @@
       },
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
     },
+
     {
       "id": 130,
       "type": "timeseries",
       "title": "Uso de Memória",
-      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -437,28 +688,82 @@
     {
       "id": 131,
       "type": "timeseries",
-      "title": "Containers (memória)",
-      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "title": "Memória por container (%)",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, container_name AS metric, mem_usage AS value FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) ORDER BY time",
+          "rawSql": "SELECT time, container_name AS metric, (mem_usage::float / NULLIF(mem_limit,0) * 100) AS value FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) AND mem_limit > 0 ORDER BY time",
           "format": "time_series"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
           "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 15, "spanNulls": true }
         }
       },
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
     },
+
+    {
+      "id": 132,
+      "type": "table",
+      "title": "Containers (uso atual)",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
+      "datasource": "TimescaleDB",
+      "targets": [
+        {
+          "rawSql": "SELECT DISTINCT ON (container_id) container_name AS name, image, state, cpu_bp / 100.0 AS \"cpu_%\", mem_usage AS mem_used, mem_limit AS mem_limit, (mem_usage::float / NULLIF(mem_limit,0) * 100) AS \"mem_%\" FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND time > NOW() - INTERVAL '2 minutes' ORDER BY container_id, time DESC",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "displayMode": "auto", "filterable": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "cpu_%" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 100 },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "#EAB839", "value": 70 }, { "color": "red", "value": 90 }] } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "mem_%" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 100 },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "#EAB839", "value": 70 }, { "color": "red", "value": 90 }] } }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "mem_used" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          { "matcher": { "id": "byName", "options": "mem_limit" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          {
+            "matcher": { "id": "byName", "options": "state" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [{ "type": "value", "options": { "running": { "color": "green", "index": 0 }, "exited": { "color": "red", "index": 1 }, "paused": { "color": "orange", "index": 2 } } }] }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
     {
       "id": 140,
       "type": "timeseries",
       "title": "Load Average (1m / 5m / 15m)",
-      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 9 },
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 8 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -483,11 +788,12 @@
       },
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
     },
+
     {
       "id": 150,
       "type": "table",
       "title": "Inventário",
-      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 6 },
+      "gridPos": { "x": 0, "y": 52, "w": 24, "h": 6 },
       "datasource": "TimescaleDB",
       "targets": [
         {
@@ -510,6 +816,17 @@
         ]
       },
       "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
+    {
+      "id": 160,
+      "type": "text",
+      "title": "Telemetria coletada mas ainda não persistida no banco",
+      "gridPos": { "x": 0, "y": 58, "w": 24, "h": 5 },
+      "options": {
+        "mode": "markdown",
+        "content": "Estas métricas **são coletadas pelo agente** mas o master ainda não grava no TimescaleDB. Para vê-las aqui, basta adicionar as tabelas + INSERTs no `storage.rs`:\n\n- **Disco** (uso/total por mountpoint) — `proto: DiskMetrics`\n- **Disco I/O** (read/write bytes/ops por device) — `proto: DiskIoMetrics`\n- **Saúde do disco / SMART** (modelo, temp, horas, healthy) — `proto: DiskHealth`\n- **Temperaturas** (sensores hwmon) — `proto: TemperatureMetrics`\n- **GPU** (utilização, memória, temp, watts) — `proto: GpuMetrics`\n- **Bateria %** — `proto: battery_pct`\n- **Top processos** (pid, nome, cpu, RSS) — `proto: ProcessInfo`\n- **Sessões SSH / usuários logados** (user, IP, tty, pid) — `proto: SshSession`\n\nDados em tempo real chegam via gRPC stream a cada `metrics_interval_ms` mas viram lixo se ninguém grava. Próximo passo lógico: pedir pro autor expandir `Storage::insert_metrics` em `crates/pulse-master/src/storage.rs`."
+      }
     }
   ]
 }
