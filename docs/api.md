@@ -77,6 +77,25 @@ Retorna as últimas 20 leituras do agent.
 ```
 
 ---
+### Info de um Agent (status + sessions)
+
+```
+GET /api/agents/:id/sessions
+```
+
+```json
+{
+  "agent_id": "agent-0001",
+  "hostname": "server-prod-1",
+  "status": "online",
+  "last_seen": "2026-06-03 21:00:00+00"
+}
+```
+
+> **Nota:** SSH sessions em tempo real são transmitidas via gRPC stream. Este endpoint mostra o status atual do agent. Para sessões em tempo real, use o Grafana ou consulte diretamente o stream de métricas.
+
+---
+
 
 ## Exemplos com curl
 

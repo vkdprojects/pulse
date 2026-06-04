@@ -196,6 +196,7 @@ crates/
 - [Instalação do Agent](./docs/agent-install.md) — Deploy em cada servidor
 - [Configuração](./docs/configuration.md) — Todas as env vars e campos TOML
 - [Funcionalidades](./docs/features.md) — Lista 1-a-1 de tudo que coleta
+- [REST API](./docs/api.md) — Endpoints HTTP para consultar agents e métricas
 - [Alertas](./docs/alerting.md) — Telegram, Slack, Discord, webhooks
 - [Segurança](./docs/security.md) — mTLS, auth token, hardening
 - [Docker](./docs/docker.md) — Dev environment + queries SQL úteis

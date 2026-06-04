@@ -10,6 +10,7 @@ pub fn router(storage: Storage) -> Router {
         .route("/health", axum::routing::get(health))
         .route("/api/agents", axum::routing::get(list_agents))
         .route("/api/agents/{id}/metrics", axum::routing::get(get_metrics))
+        .route("/api/agents/{id}/sessions", axum::routing::get(get_sessions))
         .with_state(storage)
 }
 
@@ -58,6 +59,29 @@ async fn get_metrics(State(db): State<Storage>, Path(agent_id): Path<String>) ->
                 "uptime_secs": m.4,
             })).collect::<Vec<_>>()
         })),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+async fn get_sessions(State(db): State<Storage>, Path(agent_id): Path<String>) -> Json<Value> {
+    // SSH sessions come from the latest metrics payload — stored as part of the gRPC stream
+    // For now, return latest agent info + last_seen as proxy
+    let row = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT hostname, COALESCE(status,'online'), last_seen_at::text FROM agents WHERE id = $1",
+    )
+    .bind(&agent_id)
+    .fetch_optional(db.pool())
+    .await;
+
+    match row {
+        Ok(Some(r)) => Json(json!({
+            "agent_id": agent_id,
+            "hostname": r.0,
+            "status": r.1,
+            "last_seen": r.2,
+            "note": "SSH sessions are streamed in real-time via gRPC. Query the metrics stream for live session data."
+        })),
+        Ok(None) => Json(json!({"error": "agent not found"})),
         Err(e) => Json(json!({"error": e.to_string()})),
     }
 }
