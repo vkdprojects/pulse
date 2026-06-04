@@ -693,7 +693,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT time, container_name AS metric, (mem_usage::float / NULLIF(mem_limit,0) * 100) AS value FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND $__timeFilter(time) AND mem_limit > 0 ORDER BY time",
+          "rawSql": "SELECT c.time, c.container_name AS metric, (c.mem_usage::float / NULLIF(COALESCE(NULLIF(c.mem_limit,0), m.mem_total), 0) * 100) AS value FROM container_metrics c LEFT JOIN LATERAL (SELECT mem_total FROM metrics WHERE agent_id = c.agent_id ORDER BY time DESC LIMIT 1) m ON true WHERE c.agent_id ~ '${agent:regex}' AND $__timeFilter(c.time) ORDER BY c.time",
           "format": "time_series"
         }
       ],
@@ -716,7 +716,7 @@
       "datasource": "TimescaleDB",
       "targets": [
         {
-          "rawSql": "SELECT DISTINCT ON (container_id) container_name AS name, image, state, cpu_bp / 100.0 AS \"cpu_%\", mem_usage AS mem_used, mem_limit AS mem_limit, (mem_usage::float / NULLIF(mem_limit,0) * 100) AS \"mem_%\" FROM container_metrics WHERE agent_id ~ '${agent:regex}' AND time > NOW() - INTERVAL '2 minutes' ORDER BY container_id, time DESC",
+          "rawSql": "SELECT DISTINCT ON (c.container_id) c.container_name AS name, c.image, c.state, c.cpu_bp / 100.0 AS \"cpu_%\", c.mem_usage AS mem_used, COALESCE(NULLIF(c.mem_limit,0), m.mem_total) AS mem_limit, (c.mem_usage::float / NULLIF(COALESCE(NULLIF(c.mem_limit,0), m.mem_total),0) * 100) AS \"mem_%\" FROM container_metrics c LEFT JOIN LATERAL (SELECT mem_total FROM metrics WHERE agent_id = c.agent_id ORDER BY time DESC LIMIT 1) m ON true WHERE c.agent_id ~ '${agent:regex}' AND c.time > NOW() - INTERVAL '2 minutes' ORDER BY c.container_id, c.time DESC",
           "format": "table"
         }
       ],
