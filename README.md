@@ -194,14 +194,54 @@ Migrations rodam no boot do master. Agents reconectam sozinhos.
 
 ## 📦 Deploy em Produção
 
-```bash
-# Build estático
-cargo build --release -p pulse-agent --target x86_64-unknown-linux-musl
+### Master (one-liner)
 
-# Instala no server
-scp target/x86_64-unknown-linux-musl/release/pulse-agent server:/tmp/
-ssh server 'sudo /tmp/install.sh /tmp/pulse-agent'
-ssh server 'sudo systemctl enable --now pulse-agent'
+```bash
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  INSTALL_COMPONENT=master \
+  PULSE_DB_URL="postgres://pulse:senha@localhost:5432/pulse" \
+  sudo sh -
+```
+
+Isso faz tudo: baixa o binário (~3 MB), gera certs mTLS, cria systemd service, inicia.
+
+> **Pré-requisito:** TimescaleDB rodando. Para instalar rápido:
+> `docker run -d --name tsdb -p 5432:5432 -e POSTGRES_PASSWORD=senha -e POSTGRES_USER=pulse -e POSTGRES_DB=pulse timescale/timescaledb:latest-pg17`
+
+### Agent (one-liner)
+
+```bash
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  PULSE_MASTER="https://SEU-MASTER:50051" \
+  PULSE_TOKEN="seu-token" \
+  sudo sh -
+```
+
+**1.9 MB baixado → rodando em <5 segundos.** Detecta x86_64 ou aarch64 automaticamente.
+
+### Repositório privado
+
+Se o repo é privado, passe um GitHub token com acesso a releases:
+
+```bash
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  GITHUB_TOKEN="ghp_xxxxx" \
+  PULSE_MASTER="https://master:50051" \
+  sudo sh -
+```
+
+### Versão específica
+
+```bash
+VERSION=v0.2.0 curl -sfL .../install-pulse.sh | sudo sh -
+```
+
+### Gerenciamento
+
+```bash
+systemctl status pulse-agent    # ver status
+journalctl -u pulse-agent -f    # logs em tempo real
+systemctl restart pulse-agent   # reiniciar
 ```
 
 ---
