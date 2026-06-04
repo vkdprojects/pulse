@@ -28,25 +28,47 @@ async fn main() -> Result<()> {
             "data".to_string()
         };
 
-    // Auto-generate TLS certs if none exist
+    // Auto-generate TLS certs if none exist (or if state is inconsistent — e.g. legacy
+    // installs that only persisted ca.pem without ca-key.pem; without the CA private key
+    // the in-memory CA would diverge from the on-disk cert and signed server/client certs
+    // wouldn't validate against the CA pem served to bootstrapping agents).
     let tls_dir = std::env::var("PULSE_TLS_DIR").unwrap_or_else(|_| format!("{data_dir}/certs"));
-    let tls_enabled = if std::path::Path::new(&format!("{tls_dir}/ca.pem")).exists() {
-        true
+    let has_ca_pem = std::path::Path::new(&format!("{tls_dir}/ca.pem")).exists();
+    let has_ca_key = std::path::Path::new(&format!("{tls_dir}/ca-key.pem")).exists();
+    let (tls_enabled, tls_regenerated) = if has_ca_pem && has_ca_key {
+        (true, false)
     } else if std::fs::create_dir_all(&tls_dir).is_ok() {
-        info!("auto-generating TLS certificates...");
+        let regen_from_stale = has_ca_pem && !has_ca_key;
+        if regen_from_stale {
+            warn!(dir = %tls_dir, "ca.pem present but ca-key.pem missing — regenerating full TLS bundle");
+        } else {
+            info!("auto-generating TLS certificates...");
+        }
         match pulse_master::gen_dev_certs(&tls_dir) {
             Ok(()) => {
                 info!(dir = %tls_dir, "TLS certificates generated");
-                true
+                (true, regen_from_stale)
             }
             Err(e) => {
                 warn!(error = %e, "failed to generate TLS certs, running insecure");
-                false
+                (false, false)
             }
         }
     } else {
-        false
+        (false, false)
     };
+
+    // If we regenerated TLS from a stale bundle, the existing register-token still
+    // carries the SHA256 pin of the *old* ca.pem — invalidate it so a fresh CA-pinned
+    // token gets minted below. Existing agents will need to re-bootstrap with the new
+    // token (their saved CA + client certs no longer match the master).
+    if tls_regenerated {
+        let token_path = format!("{data_dir}/register-token");
+        if std::path::Path::new(&token_path).exists() {
+            let _ = std::fs::remove_file(&token_path);
+            warn!("removed stale register-token (CA was regenerated)");
+        }
+    }
 
     // Auto-generate register token if not set (format: {sha256_of_ca_pem}::{random_secret})
     let register_token = if let Ok(t) = std::env::var("PULSE_REGISTER_TOKEN") {
