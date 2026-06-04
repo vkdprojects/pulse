@@ -45,7 +45,19 @@ docker compose up --build
 # Métricas já aparecendo em tempo real.
 ```
 
-**Ou valide com o teste automatizado:**
+**Validar que está funcionando (espere ~15s após subir):**
+
+```bash
+# API: ver agents conectados
+curl http://localhost:8080/api/agents
+
+# API: ver métricas do agent-0001
+curl http://localhost:8080/api/agents/agent-0001/metrics
+
+# Grafana: http://localhost:3000 (admin/pulse)
+```
+
+**Ou rode o teste automatizado:**
 
 ```bash
 ./tests/e2e-docker.sh

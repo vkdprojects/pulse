@@ -29,6 +29,7 @@ services:
       RUST_LOG: info
     ports:
       - "50051:50051"
+      - "8080:8080"
     volumes:
       - certs:/certs:ro
     depends_on:
