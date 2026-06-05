@@ -5,8 +5,9 @@ mod app;
 mod client;
 mod config;
 mod event;
+mod github;
+mod installer;
 mod screens;
-mod ssh;
 mod ui;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ use crossterm::{
 };
 use event::{Event, EventHandler, is_quit};
 use ratatui::prelude::*;
+use screens::setup::SetupScreen;
 use std::io::stdout;
 
 #[tokio::main]
@@ -31,7 +33,7 @@ async fn main() -> Result<()> {
 
     let mut config = Config::load().unwrap_or_default();
 
-    // CLI arg: pulse http://master:8080 → quick connect
+    // CLI arg: pulse http://master:8080 → quick connect (skip setup)
     if let Some(url) = std::env::args().nth(1) {
         let token = std::env::var("PULSE_ADMIN_TOKEN").ok();
         let name = url.replace("http://", "").replace("https://", "").replace(':', "-").replace('/', "");
@@ -40,17 +42,24 @@ async fn main() -> Result<()> {
         config.save().ok();
     }
 
+    // Terminal setup
+    enable_raw_mode()?;
+    execute!(stdout(), EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+
+    // First-run setup?
+    if config.is_first_run() && std::env::args().nth(1).is_none() {
+        run_setup(&mut terminal, &mut config).await?;
+    }
+
     let mut app = App::new(config);
 
+    // If has current context, go to fleet
     if !app.config.current_context.is_empty() && app.config.current_master().is_some() {
         let name = app.config.current_context.clone();
         app.process_action(action::Action::NavigateFleet(name));
         app.refresh_data().await;
     }
-
-    enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let result = run(&mut terminal, &mut app).await;
 
@@ -59,14 +68,40 @@ async fn main() -> Result<()> {
     result
 }
 
+async fn run_setup(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, config: &mut Config) -> Result<()> {
+    let mut setup = SetupScreen::new();
+    let mut events = EventHandler::new(50, 60);
+    let theme = ui::theme::Theme::default();
+
+    loop {
+        terminal.draw(|frame| setup.render(frame, frame.area(), &theme))?;
+
+        let Some(event) = events.next().await else { break };
+        if let Event::Key(key) = event {
+            let action = setup.handle_key(key);
+            if setup.done {
+                if !setup.token_input.is_empty() {
+                    config.github_token = Some(setup.token_input.clone());
+                    config.github_repo = Some(setup.repo_input.clone());
+                }
+                config.save().ok();
+                break;
+            }
+            if matches!(action, action::Action::CloseModal) {
+                config.save().ok();
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &mut App) -> Result<()> {
     let refresh_secs = app.config.preferences.refresh_rate_secs;
     let mut events = EventHandler::new(50, refresh_secs);
 
     loop {
-        // Poll SSH events if provisioning
         app.poll_provision();
-
         terminal.draw(|frame| app.render(frame))?;
 
         let Some(event) = events.next().await else { break };
@@ -116,7 +151,6 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                     continue;
                 }
 
-                // Handle exec
                 if matches!(action, action::Action::RunExec) {
                     if let Some(ref client) = app.client {
                         app.exec.run_command(client).await;
@@ -126,7 +160,6 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
 
                 app.process_action(action);
 
-                // Trigger refresh on navigation
                 match app.screen {
                     Screen::Fleet | Screen::Detail | Screen::Update if app.client.is_some() => {
                         app.refresh_data().await;
@@ -138,6 +171,5 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
             Event::Refresh => app.refresh_data().await,
         }
     }
-
     Ok(())
 }

@@ -7,6 +7,10 @@ pub struct Config {
     #[serde(default)]
     pub current_context: String,
     #[serde(default)]
+    pub github_token: Option<String>,
+    #[serde(default)]
+    pub github_repo: Option<String>,
+    #[serde(default)]
     pub preferences: Preferences,
     #[serde(default)]
     pub masters: Vec<MasterConfig>,
@@ -64,6 +68,14 @@ impl Config {
 
     pub fn current_master(&self) -> Option<&MasterConfig> {
         self.masters.iter().find(|m| m.name == self.current_context)
+    }
+
+    pub fn is_first_run(&self) -> bool {
+        self.github_token.is_none()
+    }
+
+    pub fn repo(&self) -> &str {
+        self.github_repo.as_deref().unwrap_or("gcnsolucoes/vixpi-pulse")
     }
 
     pub fn add_master(&mut self, name: String, url: String, token: Option<String>) {

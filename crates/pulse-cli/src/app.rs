@@ -64,7 +64,13 @@ impl App {
             detail: DetailScreen::new(String::new()),
             exec: ExecScreen::new(String::new(), String::new()),
             update: UpdateScreen::new(),
-            provision: ProvisionScreen::new(ProvisionTarget::Master, String::new(), String::new()),
+            provision: ProvisionScreen::new(
+                ProvisionTarget::Master,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
             client: None,
             modal: None,
             config,
@@ -133,18 +139,15 @@ impl App {
             }
             Action::NavigateProvision(target) => {
                 let master_url = self.config.current_master().map(|m| m.url.clone()).unwrap_or_default();
-                // For agent provisioning, try to fetch register token from master
                 let register_token = if matches!(target, ProvisionTarget::Agent) {
-                    if self.client.is_some() {
-                        // Will be fetched async — for now use empty, provision screen will handle
-                        String::new()
-                    } else {
-                        String::new()
-                    }
+                    // For agent, we need the register token — try to fetch from master
+                    String::new() // User will need to have it from master install output
                 } else {
                     String::new()
                 };
-                self.provision = ProvisionScreen::new(target, master_url, register_token);
+                let github_token = self.config.github_token.clone().unwrap_or_default();
+                let github_repo = self.config.repo().to_string();
+                self.provision = ProvisionScreen::new(target, github_token, github_repo, master_url, register_token);
                 self.screen = Screen::Provision;
             }
             Action::ShowModal(modal_action) => {
@@ -206,7 +209,23 @@ impl App {
 
     pub fn poll_provision(&mut self) {
         if matches!(self.screen, Screen::Provision) {
-            self.provision.poll_ssh();
+            self.provision.poll_events();
+            // If install completed with result, save master config
+            if self.provision.done
+                && let Some(ref result) = self.provision.result
+                && !result.admin_token.is_empty()
+            {
+                // Master was installed — save to config
+                let name = self
+                    .provision
+                    .fields
+                    .iter()
+                    .find(|f| f.label == "Nome")
+                    .map(|f| f.value.clone())
+                    .unwrap_or_else(|| "master".into());
+                self.config.add_master(name, result.master_url.clone(), Some(result.admin_token.clone()));
+                self.config.save().ok();
+            }
         }
     }
 }
@@ -429,8 +448,8 @@ mod tests {
 
         assert!(matches!(app.screen, Screen::Provision));
         assert_eq!(app.provision.target, ProvisionTarget::Agent);
-        // Agent provision should have 5 fields (host, port, user, pass, token)
-        assert_eq!(app.provision.fields.len(), 5);
+        // Agent provision has 4 fields (host, port, user, password)
+        assert_eq!(app.provision.fields.len(), 4);
     }
 
     #[test]
