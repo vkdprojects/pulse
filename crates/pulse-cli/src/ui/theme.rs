@@ -1,73 +1,114 @@
 use ratatui::style::{Color, Modifier, Style};
 
+/// Catppuccin Mocha color palette
 pub struct Theme {
-    pub bg: Color,
-    pub fg: Color,
-    pub accent: Color,
-    pub muted: Color,
-    pub success: Color,
-    pub warning: Color,
-    pub error: Color,
-    pub selected_bg: Color,
-    pub border: Color,
+    // Backgrounds
+    pub base: Color,
+    pub surface0: Color,
+    pub surface1: Color,
+    pub surface2: Color,
+
+    // Foregrounds
+    pub text: Color,
+    pub subtext: Color,
+    pub overlay: Color,
+
+    // Accents
+    pub blue: Color,
+    pub green: Color,
+    pub red: Color,
+    pub yellow: Color,
+    pub peach: Color,
+    pub mauve: Color,
+    pub teal: Color,
+    pub lavender: Color,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            bg: Color::Reset,
-            fg: Color::White,
-            accent: Color::Cyan,
-            muted: Color::DarkGray,
-            success: Color::Green,
-            warning: Color::Yellow,
-            error: Color::Red,
-            selected_bg: Color::Rgb(40, 40, 60),
-            border: Color::Rgb(60, 60, 80),
+            // Catppuccin Mocha
+            base: Color::Rgb(30, 30, 46),
+            surface0: Color::Rgb(49, 50, 68),
+            surface1: Color::Rgb(69, 71, 90),
+            surface2: Color::Rgb(88, 91, 112),
+
+            text: Color::Rgb(205, 214, 244),
+            subtext: Color::Rgb(166, 173, 200),
+            overlay: Color::Rgb(108, 112, 134),
+
+            blue: Color::Rgb(137, 180, 250),
+            green: Color::Rgb(166, 227, 161),
+            red: Color::Rgb(243, 139, 168),
+            yellow: Color::Rgb(249, 226, 175),
+            peach: Color::Rgb(250, 179, 135),
+            mauve: Color::Rgb(203, 166, 247),
+            teal: Color::Rgb(148, 226, 213),
+            lavender: Color::Rgb(180, 190, 254),
         }
     }
 }
 
 impl Theme {
-    pub fn header(&self) -> Style {
-        Style::default().fg(self.accent).add_modifier(Modifier::BOLD)
+    pub fn title(&self) -> Style {
+        Style::default().fg(self.lavender).add_modifier(Modifier::BOLD)
     }
 
     pub fn normal(&self) -> Style {
-        Style::default().fg(self.fg)
+        Style::default().fg(self.text)
     }
 
     pub fn muted(&self) -> Style {
-        Style::default().fg(self.muted)
+        Style::default().fg(self.overlay)
+    }
+
+    pub fn dim(&self) -> Style {
+        Style::default().fg(self.surface2)
     }
 
     pub fn selected(&self) -> Style {
-        Style::default().bg(self.selected_bg).fg(self.fg).add_modifier(Modifier::BOLD)
+        Style::default().bg(self.surface1).fg(self.text).add_modifier(Modifier::BOLD)
     }
 
     pub fn online(&self) -> Style {
-        Style::default().fg(self.success)
+        Style::default().fg(self.green)
     }
 
     pub fn offline(&self) -> Style {
-        Style::default().fg(self.error)
+        Style::default().fg(self.red)
+    }
+
+    pub fn warning(&self) -> Style {
+        Style::default().fg(self.yellow)
+    }
+
+    pub fn border(&self) -> Style {
+        Style::default().fg(self.surface2)
+    }
+
+    pub fn border_focused(&self) -> Style {
+        Style::default().fg(self.blue)
     }
 
     pub fn gauge_color(&self, pct: f64) -> Color {
         if pct > 90.0 {
-            self.error
+            self.red
         } else if pct > 70.0 {
-            self.warning
+            self.yellow
         } else {
-            self.success
+            self.green
         }
     }
 
-    pub fn footer(&self) -> Style {
-        Style::default().fg(self.muted)
+    pub fn key_style(&self) -> Style {
+        Style::default().fg(self.blue).add_modifier(Modifier::BOLD)
     }
 
-    pub fn shortcut(&self) -> Style {
-        Style::default().fg(self.accent)
+    pub fn desc_style(&self) -> Style {
+        Style::default().fg(self.overlay)
+    }
+
+    pub fn header_bg(&self) -> Style {
+        Style::default().bg(self.surface0).fg(self.text)
     }
 }

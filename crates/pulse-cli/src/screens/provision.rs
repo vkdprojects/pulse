@@ -151,7 +151,7 @@ impl ProvisionScreen {
             ProvisionTarget::Master => "Instalar Master via SSH",
             ProvisionTarget::Agent => "Instalar Agent via SSH",
         };
-        let header = Paragraph::new(Line::from(Span::styled(format!("⚡ {title}"), theme.header())))
+        let header = Paragraph::new(Line::from(Span::styled(format!("⚡ {title}"), theme.title())))
             .block(Block::default().borders(Borders::BOTTOM).border_style(theme.muted()));
         frame.render_widget(header, chunks[0]);
 
@@ -159,7 +159,7 @@ impl ProvisionScreen {
         let mut form_lines = Vec::new();
         for (i, field) in self.fields.iter().enumerate() {
             let focused = i == self.focused && !self.running;
-            let label_style = if focused { theme.header() } else { theme.muted() };
+            let label_style = if focused { theme.title() } else { theme.muted() };
             let val_style = if field.value.is_empty() && !focused { theme.muted() } else { theme.normal() };
             let cursor = if focused { "█" } else { "" };
 
@@ -209,7 +209,7 @@ impl ProvisionScreen {
         } else {
             "[Tab] próximo  [Enter] instalar  [Esc] cancelar"
         };
-        let footer = Paragraph::new(Span::styled(footer_text, theme.footer()));
+        let footer = Paragraph::new(Span::styled(footer_text, theme.desc_style()));
         frame.render_widget(footer, chunks[3]);
     }
 }

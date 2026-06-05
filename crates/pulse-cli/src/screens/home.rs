@@ -1,11 +1,10 @@
 use crate::action::Action;
 use crate::config::Config;
-use crate::ui::{self, theme::Theme};
+use crate::ui::{self, BORDER, theme::Theme};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::Modifier,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -20,7 +19,7 @@ impl HomeScreen {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, config: &Config) -> Action {
-        let total = config.masters.len() + 1; // +1 for "add new"
+        let total = config.masters.len() + 1;
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.selected = (self.selected + 1).min(total.saturating_sub(1));
@@ -30,10 +29,8 @@ impl HomeScreen {
             }
             KeyCode::Enter => {
                 if self.selected < config.masters.len() {
-                    let name = config.masters[self.selected].name.clone();
-                    return Action::NavigateFleet(name);
+                    return Action::NavigateFleet(config.masters[self.selected].name.clone());
                 }
-                // "Add new" selected
                 return Action::ShowModal(crate::action::ModalAction::AddMaster);
             }
             KeyCode::Char('n') => return Action::ShowModal(crate::action::ModalAction::AddMaster),
@@ -50,46 +47,78 @@ impl HomeScreen {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, config: &Config, theme: &Theme) {
-        let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(5), Constraint::Length(1)]).split(area);
+        let chunks = Layout::vertical([Constraint::Length(4), Constraint::Min(5), Constraint::Length(2)]).split(area);
 
-        // Header
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled("⚡ ", theme.header()),
-            Span::styled("Pulse", theme.header()),
-            Span::styled(format!("  │  {} masters configurados", config.masters.len()), theme.muted()),
-        ]))
-        .block(Block::default().borders(Borders::BOTTOM).border_style(theme.muted()));
+        // Header with logo
+        let header_lines = vec![
+            Line::from(vec![
+                Span::styled("  ⚡ ", theme.title()),
+                Span::styled("Pulse", theme.title()),
+                Span::styled("  │  ", theme.dim()),
+                Span::styled(format!("{} masters", config.masters.len()), theme.muted()),
+            ]),
+            Line::from(""),
+        ];
+        let header = Paragraph::new(header_lines)
+            .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
         // Master list
         let mut lines = Vec::new();
-        for (i, master) in config.masters.iter().enumerate() {
-            let selected = i == self.selected;
-            let style = if selected { theme.selected() } else { theme.normal() };
-            let icon = if selected { "›" } else { " " };
-            let status_icon = Span::styled("●", theme.online());
-            let name = Span::styled(format!(" {:<16}", master.name), style);
-            let url = Span::styled(format!("{:<32}", master.url), if selected { style } else { theme.muted() });
-            lines.push(Line::from(vec![Span::styled(icon, theme.shortcut()), Span::raw(" "), status_icon, name, url]));
+        lines.push(Line::from(""));
+
+        if config.masters.is_empty() {
+            // Empty state
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("     Nenhum master configurado", theme.muted())));
+            lines.push(Line::from(""));
+            lines
+                .push(Line::from(Span::styled("     Pressione  n  para adicionar seu primeiro master", theme.muted())));
+            lines.push(Line::from(""));
+        } else {
+            for (i, master) in config.masters.iter().enumerate() {
+                let selected = i == self.selected;
+                let row_style = if selected { theme.selected() } else { theme.normal() };
+                let indicator = if selected { "›" } else { " " };
+
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {indicator} "), theme.key_style()),
+                    Span::styled("● ", theme.online()),
+                    Span::styled(format!("{:<18}", master.name), row_style),
+                    Span::styled(&master.url, if selected { row_style } else { theme.muted() }),
+                ]));
+            }
         }
 
         // "Add new" option
-        let add_selected = self.selected == config.masters.len();
-        let add_style = if add_selected { theme.selected() } else { theme.muted() };
+        let add_idx = config.masters.len();
+        let add_selected = self.selected == add_idx;
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled(if add_selected { "›" } else { " " }, theme.shortcut()),
-            Span::styled("  + Adicionar master", add_style.add_modifier(Modifier::ITALIC)),
+            Span::styled(if add_selected { "  › " } else { "    " }, theme.key_style()),
+            Span::styled("+ ", theme.teal_style()),
+            Span::styled("Adicionar master", if add_selected { theme.selected() } else { theme.muted() }),
         ]));
 
-        let list = Paragraph::new(lines).block(Block::default().borders(Borders::NONE));
+        let list = Paragraph::new(lines);
         frame.render_widget(list, chunks[1]);
 
         // Footer
         let footer = ui::footer_line(
-            &[("j/k", "navegar"), ("Enter", "conectar"), ("n", "novo"), ("d", "remover"), ("q", "sair")],
+            &[("j/k", "navegar"), ("⏎", "conectar"), ("n", "novo"), ("d", "remover"), ("q", "sair")],
             theme,
         );
-        frame.render_widget(Paragraph::new(footer), chunks[2]);
+        let footer_widget = Paragraph::new(footer)
+            .block(Block::default().borders(Borders::TOP).border_type(BORDER).border_style(theme.border()));
+        frame.render_widget(footer_widget, chunks[2]);
     }
 }
+
+// Extension for the teal color (used for + icon)
+impl Theme {
+    pub fn teal_style(&self) -> Style {
+        ratatui::style::Style::default().fg(self.teal)
+    }
+}
+
+use ratatui::style::Style;

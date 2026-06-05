@@ -280,7 +280,7 @@ fn render_modal(frame: &mut Frame, modal: &Modal, theme: &Theme) {
     } else {
         for (i, field) in modal.fields.iter().enumerate() {
             let focused = i == modal.focused;
-            let ls = if focused { theme.header() } else { theme.muted() };
+            let ls = if focused { theme.title() } else { theme.muted() };
             lines.push(Line::from(Span::styled(format!("  {}:", field.label), ls)));
             let val = if field.value.is_empty() {
                 Span::styled(&field.placeholder, theme.muted())
@@ -295,7 +295,7 @@ fn render_modal(frame: &mut Frame, modal: &Modal, theme: &Theme) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.accent))
+        .border_style(Style::default().fg(theme.blue))
         .title(format!(" {} ", modal.title));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }

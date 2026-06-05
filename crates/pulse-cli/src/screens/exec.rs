@@ -114,8 +114,8 @@ impl ExecScreen {
 
         // Header
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("⚡ ", theme.header()),
-            Span::styled(format!("exec @ {}", self.hostname), theme.header()),
+            Span::styled("⚡ ", theme.title()),
+            Span::styled(format!("exec @ {}", self.hostname), theme.title()),
         ]))
         .block(Block::default().borders(Borders::BOTTOM).border_style(theme.muted()));
         frame.render_widget(header, chunks[0]);
@@ -130,7 +130,7 @@ impl ExecScreen {
             .rev()
             .map(|l| {
                 if l.starts_with('$') {
-                    Line::from(Span::styled(l.as_str(), theme.header()))
+                    Line::from(Span::styled(l.as_str(), theme.title()))
                 } else if l.starts_with("[err]") || l.starts_with("[error") {
                     Line::from(Span::styled(l.as_str(), theme.offline()))
                 } else {
@@ -150,7 +150,7 @@ impl ExecScreen {
             Span::styled(&self.input, theme.normal()),
             Span::styled("█", theme.normal()),
         ]))
-        .block(Block::default().borders(Borders::ALL).border_style(theme.accent).title(" Command "));
+        .block(Block::default().borders(Borders::ALL).border_style(theme.blue).title(" Command "));
         frame.render_widget(input, chunks[2]);
 
         // Footer
