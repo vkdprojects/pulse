@@ -11,8 +11,7 @@ use theme::Theme;
 pub const BORDER: BorderType = BorderType::Rounded;
 
 /// Pulse logo ASCII art (compact, fits in ~6 lines)
-pub const LOGO: &[&str] =
-    &["    ╭━━━╮    ", "   ╭┫ ⚡ ┣╮   ", "  ╭┫ PULSE┣╮  ", "  ┃╰━━━━━╯┃  ", "  ╰━━━┳━━━╯  ", "      ┃      "];
+pub const LOGO: &[&str] = &["  ┏━┓╻ ╻╻  ┏━┓┏━╸", "  ┣━┛┃ ┃┃  ┗━┓┣╸ ", "  ╹  ┗━┛┗━╸┗━┛┗━╸"];
 
 /// Colored logo lines
 pub fn logo_lines(theme: &Theme) -> Vec<Line<'static>> {

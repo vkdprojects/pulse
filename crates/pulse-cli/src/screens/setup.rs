@@ -56,7 +56,7 @@ impl SetupScreen {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let chunks = Layout::vertical([
-            Constraint::Length(10),
+            Constraint::Length(7),
             Constraint::Length(11),
             Constraint::Min(3),
             Constraint::Length(2),
