@@ -70,6 +70,7 @@ impl FleetScreen {
                 self.filter.clear();
             }
             KeyCode::Char('u') => return Action::NavigateUpdate,
+            KeyCode::Char('n') => return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Agent),
             KeyCode::Esc => return Action::NavigateHome,
             KeyCode::Char('q') => return Action::Quit,
             _ => {}
@@ -158,7 +159,14 @@ impl FleetScreen {
             ])
         } else {
             ui::footer_line(
-                &[("j/k", "nav"), ("⏎", "detalhe"), ("/", "filtro"), ("u", "updates"), ("Esc", "voltar")],
+                &[
+                    ("j/k", "nav"),
+                    ("⏎", "detalhe"),
+                    ("/", "filtro"),
+                    ("n", "add agent"),
+                    ("u", "updates"),
+                    ("Esc", "voltar"),
+                ],
                 theme,
             )
         };

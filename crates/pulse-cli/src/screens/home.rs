@@ -34,6 +34,7 @@ impl HomeScreen {
                 return Action::ShowModal(crate::action::ModalAction::AddMaster);
             }
             KeyCode::Char('n') => return Action::ShowModal(crate::action::ModalAction::AddMaster),
+            KeyCode::Char('s') => return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Master),
             KeyCode::Char('d') => {
                 if self.selected < config.masters.len() {
                     let name = config.masters[self.selected].name.clone();
@@ -105,7 +106,14 @@ impl HomeScreen {
 
         // Footer
         let footer = ui::footer_line(
-            &[("j/k", "navegar"), ("⏎", "conectar"), ("n", "novo"), ("d", "remover"), ("q", "sair")],
+            &[
+                ("j/k", "navegar"),
+                ("⏎", "conectar"),
+                ("n", "novo manual"),
+                ("s", "instalar SSH"),
+                ("d", "remover"),
+                ("q", "sair"),
+            ],
             theme,
         );
         let footer_widget = Paragraph::new(footer)
