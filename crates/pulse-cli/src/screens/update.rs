@@ -63,7 +63,9 @@ impl UpdateScreen {
             .agents
             .iter()
             .map(|a| {
-                let (icon, style) = if a.version == self.target_version || self.target_version.is_empty() {
+                let (icon, style) = if self.target_version.is_empty() {
+                    ("—", theme.muted())
+                } else if a.version == self.target_version {
                     ("✅", theme.online())
                 } else if a.status == "offline" {
                     ("❌", theme.offline())

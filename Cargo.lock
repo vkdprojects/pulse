@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "pulse-agent"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "hostname",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "pulse-cli"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "crossterm 0.29.0",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "pulse-master"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "pulse-proto"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "prost",
  "tonic",
@@ -2197,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "pulse-tests"
-version = "0.1.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "pulse-master",
