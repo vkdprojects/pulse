@@ -109,15 +109,19 @@ impl ExecScreen {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let chunks =
-            Layout::vertical([Constraint::Length(3), Constraint::Min(5), Constraint::Length(3), Constraint::Length(1)])
+            Layout::vertical([Constraint::Length(5), Constraint::Min(5), Constraint::Length(3), Constraint::Length(1)])
                 .split(area);
 
-        // Header
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled("⚡ ", theme.title()),
-            Span::styled(format!("exec @ {}", self.hostname), theme.title()),
-        ]))
-        .block(Block::default().borders(Borders::BOTTOM).border_style(theme.muted()));
+        // Header with explanation
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("  ⚡ ", theme.title()),
+                Span::styled(format!("exec @ {}", self.hostname), theme.title()),
+            ]),
+            Line::from(Span::styled("  Executa comandos no servidor master. Requer admin token.", theme.dim())),
+            Line::from(""),
+        ])
+        .block(Block::default().borders(Borders::BOTTOM).border_type(crate::ui::BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
         // Output

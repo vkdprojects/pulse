@@ -11,7 +11,7 @@ use ratatui::{
 pub struct SetupScreen {
     pub token_input: String,
     pub repo_input: String,
-    pub focused: usize, // 0 = token, 1 = repo
+    pub focused: usize,
     pub done: bool,
 }
 
@@ -41,11 +41,10 @@ impl SetupScreen {
             KeyCode::Enter => {
                 if !self.token_input.is_empty() {
                     self.done = true;
-                    return Action::CloseModal; // signal to main.rs to save config
+                    return Action::CloseModal;
                 }
             }
             KeyCode::Esc => {
-                // Skip setup — go to home without token (manual mode)
                 self.done = true;
                 self.token_input.clear();
                 return Action::CloseModal;
@@ -56,21 +55,33 @@ impl SetupScreen {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let chunks =
-            Layout::vertical([Constraint::Length(6), Constraint::Length(8), Constraint::Min(3), Constraint::Length(2)])
-                .split(area);
+        let chunks = Layout::vertical([
+            Constraint::Length(8),
+            Constraint::Length(11),
+            Constraint::Min(3),
+            Constraint::Length(2),
+        ])
+        .split(area);
 
-        // Header
+        // Welcome header with explanation
         let header = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled("  ⚡ Bem-vindo ao Pulse!", theme.title())),
             Line::from(""),
-            Line::from(Span::styled("  Vamos configurar o acesso ao repositório.", theme.muted())),
+            Line::from(Span::styled(
+                "  Pulse monitora seus servidores: CPU, memória, disco, rede — tudo em tempo real.",
+                theme.normal(),
+            )),
+            Line::from(Span::styled(
+                "  Para começar, precisamos acessar o repositório para baixar os binários.",
+                theme.muted(),
+            )),
+            Line::from(""),
         ])
         .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
-        // Form
+        // Form with explanations
         let token_style = if self.focused == 0 { theme.title() } else { theme.muted() };
         let repo_style = if self.focused == 1 { theme.title() } else { theme.muted() };
         let cursor0 = if self.focused == 0 { "█" } else { "" };
@@ -78,16 +89,19 @@ impl SetupScreen {
 
         let token_display = if self.token_input.is_empty() {
             "ghp_xxxxxxxxxxxxxxxx".to_string()
+        } else if self.token_input.len() > 20 {
+            format!("{}...", &self.token_input[..20])
         } else {
-            format!("{}...", &self.token_input[..self.token_input.len().min(20)])
+            self.token_input.clone()
         };
 
         let form = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled("  GitHub Token (scope: repo):", token_style)),
+            Line::from(Span::styled("  GitHub Token:", token_style)),
+            Line::from(Span::styled("  Necessário para baixar binários do repo privado.", theme.dim())),
             Line::from(vec![
                 Span::styled("  ", theme.normal()),
-                Span::styled(&token_display, if self.token_input.is_empty() { theme.dim() } else { theme.normal() }),
+                Span::styled(token_display, if self.token_input.is_empty() { theme.dim() } else { theme.normal() }),
                 Span::styled(cursor0, theme.normal()),
             ]),
             Line::from(""),
@@ -97,21 +111,28 @@ impl SetupScreen {
                 Span::styled(&self.repo_input, theme.normal()),
                 Span::styled(cursor1, theme.normal()),
             ]),
+            Line::from(""),
         ]);
         frame.render_widget(form, chunks[1]);
 
-        // Help text
+        // Contextual help
         let help = Paragraph::new(vec![
+            Line::from(Span::styled("  Como obter o token:", theme.muted())),
+            Line::from(Span::styled("  1. Acesse github.com/settings/tokens → Generate new token", theme.dim())),
+            Line::from(Span::styled("  2. Selecione scope: repo (Full control)", theme.dim())),
+            Line::from(Span::styled("  3. Copie o token gerado (ghp_...) e cole aqui", theme.dim())),
             Line::from(""),
-            Line::from(Span::styled("  O token permite baixar binários do repo privado.", theme.muted())),
-            Line::from(Span::styled("  Crie em: github.com/settings/tokens", theme.muted())),
-            Line::from(Span::styled("  Scope necessário: repo (full control)", theme.muted())),
+            Line::from(Span::styled("  Após configurar, você poderá instalar masters e agents", theme.muted())),
+            Line::from(Span::styled("  diretamente por esta interface — sem comandos manuais.", theme.muted())),
         ])
         .wrap(Wrap { trim: false });
         frame.render_widget(help, chunks[2]);
 
         // Footer
-        let footer = ui::footer_line(&[("Tab", "próximo"), ("Enter", "salvar"), ("Esc", "pular")], theme);
+        let footer = ui::footer_line(
+            &[("Tab", "próximo campo"), ("Enter", "salvar e continuar"), ("Esc", "pular setup")],
+            theme,
+        );
         let fw = Paragraph::new(footer)
             .block(Block::default().borders(Borders::TOP).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(fw, chunks[3]);

@@ -180,22 +180,40 @@ impl ProvisionScreen {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let explanation = match self.target {
+            ProvisionTarget::Master => vec![
+                "  Baixa o binário do GitHub, faz upload via SFTP e configura systemd.",
+                "  Requisitos: Linux (x86_64/arm64), SSH com sudo, porta 8080 e 50051 livres.",
+            ],
+            ProvisionTarget::Agent => vec![
+                "  Instala o agent que coleta métricas e envia para o master.",
+                "  Requisitos: Linux (x86_64/arm64), SSH com sudo.",
+            ],
+        };
+
+        let header_height = 4 + explanation.len() as u16;
         let chunks = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(header_height),
             Constraint::Length(self.fields.len() as u16 + 2),
             Constraint::Min(5),
             Constraint::Length(2),
         ])
         .split(area);
 
-        // Header
+        // Header with explanation
         let title = match self.target {
             ProvisionTarget::Master => "Instalar Master via SSH",
             ProvisionTarget::Agent => "Instalar Agent via SSH",
         };
-        let header =
-            Paragraph::new(Line::from(vec![Span::styled("  ⚡ ", theme.title()), Span::styled(title, theme.title())]))
-                .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
+        let mut header_lines = vec![
+            Line::from(vec![Span::styled("  ⚡ ", theme.title()), Span::styled(title, theme.title())]),
+            Line::from(""),
+        ];
+        for line in &explanation {
+            header_lines.push(Line::from(Span::styled(*line, theme.muted())));
+        }
+        let header = Paragraph::new(header_lines)
+            .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
         // Form

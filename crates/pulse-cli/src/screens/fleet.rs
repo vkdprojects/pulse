@@ -106,49 +106,75 @@ impl FleetScreen {
         .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
-        // Agent table
-        let filtered = self.filtered_agents();
-        let rows: Vec<Row> = filtered
-            .iter()
-            .enumerate()
-            .map(|(i, a)| {
-                let sel = i == self.selected;
-                let style = if sel { theme.selected() } else { theme.normal() };
-                let status_span = if a.status == "online" { "●" } else { "○" };
-                let status_color = if a.status == "online" { theme.green } else { theme.red };
-                let cpu_str = a.cpu_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
-                let mem_str = a.mem_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
-                let uptime_str = a.uptime_secs.map(ui::format_uptime).unwrap_or_else(|| "—".into());
-                let spark = ui::sparkline_str(&a.cpu_history, 10);
+        // Empty state
+        if self.agents.is_empty() {
+            let empty = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled("  Nenhum servidor monitorado ainda.", theme.normal())),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Cada \"agent\" é um daemon leve (~3MB, ~2MB RAM) que coleta métricas",
+                    theme.muted(),
+                )),
+                Line::from(Span::styled(
+                    "  e envia para o master. Instale em cada servidor que deseja monitorar.",
+                    theme.muted(),
+                )),
+                Line::from(""),
+                Line::from(Span::styled("  Pressione  n  para instalar um agent via SSH.", theme.muted())),
+            ]);
+            frame.render_widget(empty, chunks[1]);
+        } else {
+            // Agent table
+            let filtered = self.filtered_agents();
+            let rows: Vec<Row> = filtered
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let sel = i == self.selected;
+                    let style = if sel { theme.selected() } else { theme.normal() };
+                    let status_span = if a.status == "online" { "●" } else { "○" };
+                    let status_color = if a.status == "online" { theme.green } else { theme.red };
+                    let cpu_str = a.cpu_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
+                    let mem_str = a.mem_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
+                    let uptime_str = a.uptime_secs.map(ui::format_uptime).unwrap_or_else(|| "—".into());
+                    let spark = ui::sparkline_str(&a.cpu_history, 10);
 
-                Row::new(vec![
-                    Line::from(Span::styled(status_span, Style::default().fg(status_color))),
-                    Line::from(Span::styled(format!("{:<16}", a.hostname), style)),
-                    Line::from(Span::styled(spark, Style::default().fg(theme.peach))),
-                    Line::from(Span::styled(cpu_str, Style::default().fg(theme.gauge_color(a.cpu_pct.unwrap_or(0.0))))),
-                    Line::from(Span::styled(mem_str, Style::default().fg(theme.gauge_color(a.mem_pct.unwrap_or(0.0))))),
-                    Line::from(Span::styled(format!("{:>7}", uptime_str), theme.muted())),
-                    Line::from(Span::styled(a.version.clone(), theme.dim())),
-                ])
-                .style(if sel { theme.selected() } else { Style::default() })
-            })
-            .collect();
+                    Row::new(vec![
+                        Line::from(Span::styled(status_span, Style::default().fg(status_color))),
+                        Line::from(Span::styled(format!("{:<16}", a.hostname), style)),
+                        Line::from(Span::styled(spark, Style::default().fg(theme.peach))),
+                        Line::from(Span::styled(
+                            cpu_str,
+                            Style::default().fg(theme.gauge_color(a.cpu_pct.unwrap_or(0.0))),
+                        )),
+                        Line::from(Span::styled(
+                            mem_str,
+                            Style::default().fg(theme.gauge_color(a.mem_pct.unwrap_or(0.0))),
+                        )),
+                        Line::from(Span::styled(format!("{:>7}", uptime_str), theme.muted())),
+                        Line::from(Span::styled(a.version.clone(), theme.dim())),
+                    ])
+                    .style(if sel { theme.selected() } else { Style::default() })
+                })
+                .collect();
 
-        let header_style = theme.dim();
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Length(2),
-                Constraint::Min(16),
-                Constraint::Length(10),
-                Constraint::Length(5),
-                Constraint::Length(5),
-                Constraint::Length(7),
-                Constraint::Length(6),
-            ],
-        )
-        .header(Row::new(vec!["", "HOST", "CPU ─────", "CPU", "MEM", "UPTIME", "VER"]).style(header_style));
-        frame.render_widget(table, chunks[1]);
+            let header_style = theme.dim();
+            let table = Table::new(
+                rows,
+                [
+                    Constraint::Length(2),
+                    Constraint::Min(16),
+                    Constraint::Length(10),
+                    Constraint::Length(5),
+                    Constraint::Length(5),
+                    Constraint::Length(7),
+                    Constraint::Length(6),
+                ],
+            )
+            .header(Row::new(vec!["", "HOST", "CPU ─────", "CPU", "MEM", "UPTIME", "VER"]).style(header_style));
+            frame.render_widget(table, chunks[1]);
+        } // end else (has agents)
 
         // Footer
         let footer = if self.filtering {

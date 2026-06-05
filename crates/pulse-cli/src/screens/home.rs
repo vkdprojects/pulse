@@ -69,12 +69,26 @@ impl HomeScreen {
         lines.push(Line::from(""));
 
         if config.masters.is_empty() {
-            // Empty state
+            // Empty state with explanation
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("     Nenhum master configurado", theme.muted())));
+            lines.push(Line::from(Span::styled(
+                "  Um \"master\" é o servidor central que recebe métricas de todos os seus servidores.",
+                theme.muted(),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  Você precisa de pelo menos um master rodando para começar.",
+                theme.muted(),
+            )));
             lines.push(Line::from(""));
-            lines
-                .push(Line::from(Span::styled("     Pressione  n  para adicionar seu primeiro master", theme.muted())));
+            lines.push(Line::from(Span::styled("  Para começar:", theme.normal())));
+            lines.push(Line::from(Span::styled(
+                "  • Pressione  s  para instalar um master em um servidor via SSH",
+                theme.muted(),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  • Ou pressione  n  para conectar a um master já existente (URL manual)",
+                theme.muted(),
+            )));
             lines.push(Line::from(""));
         } else {
             for (i, master) in config.masters.iter().enumerate() {
