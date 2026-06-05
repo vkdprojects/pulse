@@ -1,356 +1,321 @@
-# ⚡ Vixpi Pulse
+# Vixpi Pulse
 
-> **O monitoring agent que cabe no bolso do seu servidor.**
+**Infrastructure monitoring that fits in your server's pocket.**
 
-Binário de **1.9 MB**. Roda com **2-5 MB de RAM**. Coleta tudo. Executa comandos remotos. **Zero dependências.**
+One binary. 2-5 MB RAM. Full telemetry. Remote execution. Auto-updates. Zero dependencies.
 
 ```
 ┌─────────────┐    gRPC/mTLS     ┌──────────────┐
 │ pulse-agent │ ═══════════════▶ │ pulse-master │ ──▶ REST API :8080
-│  (1.9 MB)   │ ◀═══════════════ │  (~4 MB)     │ ──▶ SQLite embedded
+│   (3.1 MB)  │ ◀═══════════════ │   (5.8 MB)   │ ──▶ SQLite embedded
 └─────────────┘   commands        └──────────────┘     (zero config)
      × N agents                    auto-provisioning
+
+┌─────────────┐
+│   pulse     │  TUI/CLI for operators (2.0 MB)
+│  (your mac) │  Install, monitor, update — all from terminal
+└─────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start — 2 comandos, zero dependências
+## Getting Started
+
+### Option A: TUI (recommended)
+
+Install the `pulse` CLI on your machine and manage everything from there.
 
 ```bash
-# ══════ No servidor central (master): ══════
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
-
-# ══════ Em cada servidor que quer monitorar: ══════
+# macOS / Linux — no sudo needed
 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  PULSE_MASTER=https://SEU-MASTER-IP:50051 PULSE_TOKEN=token-mostrado-no-install sudo sh -
+  INSTALL_COMPONENT=cli GITHUB_TOKEN=ghp_YOUR_TOKEN sh -
 ```
 
-**Pronto.** Abra `http://master:8080/api/agents` — seus servidores já aparecem.
-
-> Sem Docker. Sem Postgres. Sem Grafana. Sem config files.
-> O master gera TLS, token e database automaticamente no primeiro boot.
-
----
-
-## 🖥️ Pulse TUI — Dashboard no Terminal
+Then run:
 
 ```bash
-# Instala na sua máquina (macOS / Linux, sem sudo)
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=cli sh -
-
-# Conecta ao master
-pulse http://master:8080
+pulse
 ```
 
+The TUI guides you through:
+1. First-run setup (GitHub token for downloading binaries)
+2. Installing a master on a remote server via SSH
+3. Adding agents to your fleet
+4. Monitoring everything in real-time
+
 ```
-⚡ Pulse Fleet                                    ↻ 5s │ 4 agents │ 4 online
-────────────────────────────────────────────────────────────────────────────────
- ● UP │ web-prod-01     │ CPU 23% │ MEM 67% │ ↑12d 4h │ v0.3.0
- ● UP │ db-master       │ CPU 12% │ MEM 89% │ ↑ 5d 1h │ v0.3.0
- ○ DN │ worker-03       │ —       │ —       │ offline │ v0.2.0
- ● UP │ cache-01        │ CPU  3% │ MEM 34% │ ↑42d 7h │ v0.3.0
-────────────────────────────────────────────────────────────────────────────────
- [j/k] navigate  [Enter] detail  [/] filter  [u] update  [e] exec  [q] quit
+    ╭───╮
+   ╭┤ ◉ ├╮   ┏━┓╻ ╻╻  ┏━┓┏━╸
+   │╰─┬─╯│   ┣━┛┃ ┃┃  ┗━┓┣╸
+   ╰──┼──╯   ╹  ┗━┛┗━╸┗━┛┗━╸
+      ╵
+
+  Pulse monitors your servers: CPU, memory, disk, network — real-time.
 ```
 
-Binário de **1.7 MB**. Roda em qualquer terminal. Atualização em tempo real a cada 5s.
-
----
-
-## 🔄 Auto-Update — Zero SSH para atualizar agents
+### Option B: Manual install (curl | sh)
 
 ```bash
-# Push tag → CI compila → agents se atualizam sozinhos
-git tag v0.4.0 && git push --tags
+# Master server
+curl -sfL .../install-pulse.sh | GITHUB_TOKEN=ghp_xxx sudo sh -
 
-# Ou manualmente: upload + rollout
-curl -X POST http://master:8080/api/updates/upload -H "Authorization: Bearer $TOKEN" -F "version=v0.4.0" -F "arch=x86_64" -F "binary=@pulse-agent"
-curl -X POST http://master:8080/api/updates/rollout -H "Authorization: Bearer $TOKEN" -d '{"version":"v0.4.0","rollout_pct":100}'
+# Each monitored server
+curl -sfL .../install-pulse.sh | \
+  PULSE_MASTER=https://MASTER-IP:50051 PULSE_TOKEN=xxx GITHUB_TOKEN=ghp_xxx sudo sh -
 ```
 
-- Agents verificam a cada 5 min, baixam do master, verificam SHA256
-- Rollout gradual (10% → 50% → 100%)
-- Rollback automático se o novo binário crashar 3x
-- Zero GitHub tokens nos agents — tudo pelo master
-
 ---
 
-## 🏆 vs Concorrência
-
-| | **Vixpi Pulse** | Beszel | Netdata | Telegraf | Zabbix Agent |
-|---|---|---|---|---|---|
-| **RAM idle** | **2-5 MB** 🥇 | 15-23 MB | 100-200 MB | 50-100 MB | 50-128 MB |
-| **Binário** | **1.9 MB** 🥇 | ~10 MB | ~100 MB | ~50 MB | ~15 MB |
-| **Linguagem** | Rust (no GC) | Go | C | Go | Go |
-| **Remote exec** | ✅ streaming | ❌ | ❌ | ❌ | limitado |
-| **Log tail remoto** | ✅ `tail -f` | ❌ | ❌ | ❌ | ❌ |
-| **File ops remoto** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Package mgmt** | ✅ apt | ❌ | ❌ | ❌ | ❌ |
-| **mTLS automático** | ✅ zero-config | SSH | HTTPS | manual | manual |
-| **Auto-update** | ✅ gradual rollout | cron | kickstart.sh | ❌ | ❌ |
-| **TUI nativa** | ✅ 1.7 MB | ❌ | ❌ | ❌ | ❌ |
-| **Docker stats** | ✅ | ✅ | ✅ | plugin | plugin |
-| **GPU (nvidia)** | ✅ | ✅ | ✅ | plugin | ❌ |
-| **Cgroup aware** | ✅ v1+v2 | ❌ | ✅ | ❌ | ❌ |
-| **Licença** | MIT | MIT | GPL-3 | MIT | GPL-2 |
-
-> **TL;DR:** 10x mais leve que Beszel, com remote execution que nenhum concorrente leve tem.
-
----
-
-## 📊 O Que Coleta
-
-| Métrica | Fonte | Nota |
-|---|---|---|
-| CPU (per-core + total) | `/proc/stat` | Basis points (0-10000) |
-| Load average (1/5/15m) | `/proc/loadavg` | |
-| Memory + swap | `/proc/meminfo` | |
-| Cgroup memory | `/sys/fs/cgroup/` | v1 + v2 auto-detect |
-| Disk usage | `statvfs` | ext4, xfs, btrfs, zfs |
-| Disk I/O | `/proc/diskstats` | read/write bytes + ops |
-| Disk health | `/sys/block/*/device/` | model + temp |
-| Network | `/proc/net/dev` | per interface |
-| Docker containers | cgroup | CPU + mem por container |
-| GPU | `nvidia-smi` | util%, mem, temp, power |
-| Temperature | `/sys/class/thermal/` | todas as zones |
-| Top 5 processes | `/proc/[pid]/stat` | por CPU + RSS |
-| SSH sessions | `/var/run/utmp` | user, IP, tty, pid |
-| Battery | `/sys/class/power_supply/` | % |
-| System | `/proc/uptime` | uptime + process count |
-| TCP Connections | `/proc/net/tcp{,6}` | IPs remotos por porta (netflow leve) |
-
----
-
-## 🎮 Comandos Remotos (killer feature)
+## How It Works
 
 ```
-Master → Agent: "roda isso aí"
-Agent → Master: stdout/stderr em tempo real
+You (laptop)                    Master (central)                 Agents (servers)
+────────────                    ────────────────                 ───────────────
+pulse (TUI)  ──── REST :8080 ──── pulse-master ──── gRPC/mTLS ──── pulse-agent
+                                       │                              │
+                                  SQLite DB                     /proc, /sys, cgroup
+                                  Auto-TLS                     nvidia-smi, Docker
+                                  Alerting                     Remote exec
 ```
 
-- **Exec** — roda qualquer programa com args, env, working dir, timeout
-- **Package** — `apt install/remove/update` pacotes
-- **File** — read/write/append arquivos remotos
-- **Log tail** — `tail -f /var/log/syslog` streaming em tempo real
-
-Tudo via gRPC bidirecional. Tudo com timeout + kill automático.
+- **Master** runs on one server. Stores metrics, serves API, manages TLS certificates.
+- **Agents** run on every server you want to monitor. 2-5 MB RAM, invisible footprint.
+- **pulse** runs on your laptop. Connects to master API. Install, monitor, update.
 
 ---
 
-## 🔐 Segurança
+## TUI Screens
 
-- **mTLS em tudo** — certificado mútuo, zero conexão não autenticada
-- **Auto-provisioning** — agent registra, master gera e envia cert na hora
-- **Zero unsafe** no workspace (exceto 1 syscall de statvfs)
-- **cargo audit** — 0 vulnerabilidades
-- **Systemd hardening** — NoNewPrivileges, ProtectSystem=strict
+### Fleet Overview
+Real-time view of all your servers with inline CPU sparklines.
 
----
+```
+ ◉ pulse homelab  │  12 agents  ● 11  ○ 1
 
-## 🔔 Alerting
-
-```bash
-# Config via env vars no master:
-PULSE_ALERT_WEBHOOK=https://api.telegram.org/bot<TOKEN>/sendMessage
-PULSE_ALERT_TELEGRAM_CHAT_ID=123456
-PULSE_ALERT_CPU_PCT=90   # dispara se CPU > 90% por 3 leituras
-PULSE_ALERT_MEM_PCT=90   # dispara se MEM > 90% por 3 leituras
+    HOST              CPU ─────────  CPU   MEM   UPTIME   VER
+ ●  web-prod-01      ▂▃▅▇█▅▃▂▁▂    23%   67%   12d 4h   0.4.0
+ ●  db-master        ▁▁▂▁▁▁▁▁▁▁    12%   89%    5d 1h   0.4.0
+ ○  worker-03        ──────────      —     —    offline   0.3.0
+ ●  cache-redis      ▁▁▁▁▁▁▁▁▁▁     3%   34%   42d 7h   0.4.0
 ```
 
-Auto-detecta formato: **Telegram**, **Slack**, **Discord**, ou webhook genérico.
+### Agent Detail
+Grafana-style dashboard: stat cards, braille charts, disk/network tables.
+
+```
+ ◉ pulse web-prod-01  ● ↑12d4h  0.4.0    [System] [Processes] [Containers] [GPU]
+
+ ╭──────╮ ╭──────╮ ╭──────╮ ╭──────╮ ╭──────╮
+ │23.4% │ │67.2% │ │ 1.23 │ │  0%  │ │  3   │
+ │ CPU  │ │ MEM  │ │ LOAD │ │ SWAP │ │PROCS │
+ ╰──────╯ ╰──────╯ ╰──────╯ ╰──────╯ ╰──────╯
+
+ ╭── CPU % ──────────────────╮ ╭── MEM % ──────────────────╮
+ │  ⣠⣤⣶⣿⣿⣶⣤⣀⠀⣤⣶⣿⣿⣶     │ │  ⣀⣤⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶     │
+ ╰───────────────────────────╯ ╰───────────────────────────╯
+```
+
+### SSH Installer
+Install master or agents on remote servers without leaving the terminal.
+
+```
+ ◉ pulse Instalar Master via SSH
+
+  Hosts from ~/.ssh/config:
+  › pulse-master-vm    ubuntu@192.168.68.66:22  (codeatlas)
+    pulse-agent-1-vm   ubuntu@192.168.68.68:22  (codeatlas)
+    Manual...
+```
+
+Reads your `~/.ssh/config`, respects Keychain and ssh-agent. No passwords needed if your keys are configured.
 
 ---
 
-## 🌐 REST API (21 endpoints)
+## Auto-Update
 
-Base: `http://master:8080`
+Agents self-update without SSH access. Push a tag, agents update in 5 minutes.
 
-| Endpoint | Descrição |
-|---|---|
+```
+git tag v0.5.0 && git push --tags
+  → CI builds binaries
+  → CI uploads to master
+  → CI sets rollout target
+  → Agents poll every 5 min
+  → Download, SHA256 verify, atomic replace, restart
+```
+
+- Gradual rollout: 10% → 50% → 100%
+- Automatic rollback: 3 crashes → restores previous binary
+- Zero downtime: systemd restart takes < 1 second
+
+---
+
+## What It Collects
+
+| Category | Metrics |
+|----------|---------|
+| CPU | Per-core usage, total %, load average (1/5/15m) |
+| Memory | Used, available, swap, cgroup limits (v1+v2) |
+| Disk | Usage per mount, I/O bytes/ops, health (model, temp) |
+| Network | RX/TX bytes per interface, packets, errors |
+| Docker | Per-container CPU, memory, state |
+| GPU | NVIDIA: utilization, memory, temp, power |
+| System | Uptime, processes, temperatures, battery |
+| SSH | Active sessions (user, IP, terminal, PID) |
+| TCP | Connections per port with remote IPs (netflow-lite) |
+
+---
+
+## REST API
+
+Base: `http://master:8080` — Protected by `PULSE_ADMIN_TOKEN` for write operations.
+
+| Endpoint | Description |
+|----------|-------------|
 | `GET /health` | Health check |
-| `GET /api/ca` | CA certificate (PEM) |
-| `GET /api/overview` | Dashboard summary (todos agents + stats) |
-| `GET /api/alerts` | Histórico de alertas |
-| `GET /api/agents` | Listar agents |
-| `GET /api/agents/:id/metrics` | Últimas 20 métricas |
-| `GET /api/agents/:id/metrics/latest` | Snapshot atual (1 leitura) |
-| `GET /api/agents/:id/disks` | Uso de disco por mountpoint |
-| `GET /api/agents/:id/network` | Tráfego por interface |
+| `GET /api/overview` | All agents with latest metrics |
+| `GET /api/agents` | Agent list |
+| `GET /api/agents/:id/metrics` | Last 20 readings |
+| `GET /api/agents/:id/metrics/latest` | Full current snapshot |
+| `GET /api/agents/:id/disks` | Disk usage |
+| `GET /api/agents/:id/network` | Network interfaces |
 | `GET /api/agents/:id/containers` | Docker containers |
-| `GET /api/agents/:id/processes` | Top processos |
+| `GET /api/agents/:id/processes` | Top processes |
 | `GET /api/agents/:id/gpu` | GPU stats |
-| `GET /api/agents/:id/connections` | Conexões TCP por porta (netflow) |
-| `GET /api/agents/:id/sessions` | Info do agent |
-| `DELETE /api/agents/:id` | Remover agent 🔒 |
-| `POST /api/agents/:id/exec` | Executar comando 🔒 |
-| `GET /api/updates/check` | Verifica update disponível |
-| `GET /api/updates/download` | Download do binário |
-| `POST /api/updates/upload` | Upload de binário (CI) 🔒 |
-| `GET /api/updates/rollout` | Ver config de rollout |
-| `POST /api/updates/rollout` | Setar target version 🔒 |
+| `GET /api/agents/:id/connections` | TCP connections |
+| `PUT /api/agents/:id/name` | Rename agent |
+| `DELETE /api/agents/:id` | Remove agent |
+| `POST /api/agents/:id/exec` | Execute command |
+| `GET /api/updates/check` | Check for updates |
+| `GET /api/updates/download` | Download binary |
+| `POST /api/updates/upload` | Upload binary (CI) |
+| `POST /api/updates/rollout` | Set rollout config |
+| `GET /api/alerts` | Alert history |
 
-🔒 = requer `Authorization: Bearer PULSE_ADMIN_TOKEN`
+---
 
-```bash
-# Exemplo: overview de todos os servidores
-curl -s http://master:8080/api/overview | jq
+## Security
 
-# Exemplo: quem está acessando meu servidor na porta 22?
-curl -s http://master:8080/api/agents/agent-0001/connections | jq '.connections[] | select(.service=="ssh")'
+| Layer | How |
+|-------|-----|
+| Wire encryption | Mutual TLS (mTLS) on all gRPC traffic |
+| CA pin | Token contains SHA256 of CA cert — prevents MITM |
+| Auto-provisioning | Master issues client certs on registration |
+| Auth tokens | Separate: register (agents), admin (operators) |
+| Systemd hardening | NoNewPrivileges, ProtectSystem=strict |
+| Binary verification | SHA256 check before applying updates |
+
+---
+
+## Architecture
+
+```
+crates/
+├── pulse-proto/       Protobuf definitions (gRPC contract)
+├── pulse-agent/       Monitoring daemon (3.1 MB)
+│   ├── telemetry.rs   /proc + /sys + cgroup + nvidia-smi
+│   ├── worker.rs      Remote execution (exec, file, package, log-tail)
+│   └── updater.rs     Self-update (download, verify, replace, rollback)
+├── pulse-master/      Central server (5.8 MB)
+│   ├── service.rs     gRPC service + auto-provisioning
+│   ├── storage.rs     SQLite (default) or Postgres (via DATABASE_URL)
+│   ├── api.rs         REST API (axum)
+│   ├── auth.rs        Bearer token middleware
+│   ├── updates.rs     Binary distribution + rollout
+│   ├── alerts.rs      Threshold alerting → webhooks
+│   └── ca.rs          X.509 CA (certificate generation)
+├── pulse-cli/         TUI for operators (2.0 MB, binary: "pulse")
+│   ├── installer.rs   SSH-based provisioning (uses system ssh/scp)
+│   ├── github.rs      GitHub Release API client
+│   ├── ssh_config.rs  Parses ~/.ssh/config
+│   └── screens/       Home, Fleet, Detail, Exec, Update, Provision, Setup
+└── pulse-tests/       Integration tests (gRPC + mTLS scenarios)
 ```
 
 ---
 
-## 🔄 Update / Upgrade
+## Numbers
 
-Rode o mesmo comando de instalação novamente. O script para o serviço, substitui o binário e reinicia:
-
-```bash
-# Update master:
-curl -sfL .../install-pulse.sh | sudo sh -
-
-# Update agent:
-curl -sfL .../install-pulse.sh | PULSE_MASTER=https://x:50051 sudo sh -
-```
-
-Migrations rodam automaticamente no boot. Agents reconectam sozinhos.
-
-**Versão específica:**
-```bash
-VERSION=v0.2.0 curl -sfL .../install-pulse.sh | sudo sh -
-```
+| Metric | Value |
+|--------|-------|
+| Agent binary | 3.1 MB |
+| Master binary | 5.8 MB |
+| CLI binary | 2.0 MB |
+| Agent RAM (idle) | 2-5 MB |
+| Master RAM (idle) | ~5 MB |
+| External dependencies | 0 |
+| Install time | < 5 seconds |
+| First metric after boot | ~1 second |
+| Automated tests | 93 |
+| Vulnerabilities | 0 |
+| Unsafe code | 0 |
 
 ---
 
-## 📦 Scaling (100+ agents)
-
-Por default o master usa **SQLite embedded** (zero config, ~2 MB RAM). Para escalar:
+## Development
 
 ```bash
-# Adicione TimescaleDB quando precisar:
-systemctl stop pulse-master
-
-# Edite o service pra adicionar DATABASE_URL:
-systemctl edit pulse-master
-# [Service]
-# Environment=DATABASE_URL=postgres://pulse:senha@localhost:5432/pulse
-
-systemctl start pulse-master
-# Master detecta postgres:// → usa TimescaleDB com hypertables, compression, etc.
-```
-
-Com TimescaleDB você ganha: compression 90%+, continuous aggregates, Grafana nativo, retenção configurável.
-
----
-
-## 🐳 Demo Mode (Docker Compose + Grafana)
-
-```bash
-# Sobe tudo: DB + Master + 3 Agents + Grafana
-docker compose up --build
-
-# Dashboard → http://localhost:3000 (user: admin, pass: pulse)
-```
-
-Útil para: demo rápida, desenvolvimento local, ou se quiser Grafana com dashboards prontos.
-
----
-
-## 🛠️ Dev Environment
-
-```bash
-# Pré-requisitos: Rust 1.88+, protoc
+# Prerequisites: Rust 1.88+, protoc
 brew install protobuf just   # macOS
 
 # Build
 cargo build --workspace
 
-# Rodar master (SQLite, zero config):
-cargo run -p pulse-master
+# Run quality checks
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 
-# Rodar agent:
-cargo run -p pulse-agent -- .certs/agent.toml
-
-# Quality checks:
-just ci   # fmt + clippy + test
+# Or use just:
+just ci
 ```
 
 ---
 
-## 📁 Gerenciamento
+## Configuration
 
-```bash
-# Status
-systemctl status pulse-master
-systemctl status pulse-agent
+### Master (env vars)
+```
+PULSE_LISTEN=0.0.0.0:50051
+PULSE_TLS_DIR=/var/lib/pulse/certs
+DATABASE_URL=postgres://...     # optional, default: SQLite
+PULSE_ALERT_WEBHOOK=https://...
+PULSE_ALERT_CPU_PCT=90
+PULSE_ALERT_MEM_PCT=90
+PULSE_RETENTION_DAYS=30
+```
 
-# Logs em tempo real
-journalctl -u pulse-master -f
-journalctl -u pulse-agent -f
+### Agent (TOML)
+```toml
+master_endpoint = "https://master:50051"
+metrics_interval_ms = 10000
+auth_token = "sha256::secret"
+```
 
-# Reiniciar
-systemctl restart pulse-master
+### CLI (~/.config/pulse/config.toml)
+```toml
+github_token = "ghp_..."
+github_repo = "gcnsolucoes/vixpi-pulse"
+current_context = "production"
 
-# Desinstalar
-systemctl disable --now pulse-master
-rm /usr/local/bin/pulse-master
-rm -rf /var/lib/pulse /etc/pulse
+[[masters]]
+name = "production"
+url = "http://master:8080"
+admin_token = "..."
 ```
 
 ---
 
-## 📈 Números
+## Documentation
 
-| Métrica | Valor |
-|---|---|
-| Binário agent | **3.1 MB** |
-| Binário master | **~5.8 MB** |
-| Binário CLI (TUI) | **1.7 MB** |
-| RAM idle (agent) | **2-5 MB** |
-| RAM idle (master) | **~5 MB** |
-| Dependências externas | **0** |
-| Tempo de install | **< 5 segundos** |
-| Tempo até primeiro dado | **~1s após boot** |
-| Testes automatizados | 51 |
-| Vulnerabilidades | 0 |
-| Unsafe code | 0 |
+See [docs/](./docs/) for detailed guides:
+- [CLI Installation](./docs/cli-install.md)
+- [Auto-Update System](./docs/auto-update.md)
+- [API Reference](./docs/api.md)
+- [Security & TLS](./docs/security.md)
+- [Alerting](./docs/alerting.md)
+- [Troubleshooting](./docs/troubleshooting.md)
 
 ---
 
-## 🗂️ Estrutura
-
-```
-crates/
-├── pulse-proto/      # Protobuf (gRPC contracts)
-├── pulse-agent/      # O daemon (3.1 MB)
-│   ├── main.rs       # connect → register → stream (reconnect + backoff)
-│   ├── config.rs     # TOML config
-│   ├── telemetry.rs  # /proc + cgroup + statvfs + nvidia-smi
-│   ├── containers.rs # Docker stats via cgroup
-│   ├── worker.rs     # exec/package/file/log-tail
-│   └── updater.rs    # auto-update (check + download + self-replace + rollback)
-├── pulse-master/     # Servidor central (~5.8 MB)
-│   ├── service.rs    # gRPC + auto-provisioning
-│   ├── storage.rs    # SQLite (default) ou Postgres (via DATABASE_URL)
-│   ├── alerts.rs     # Threshold → webhook
-│   ├── api.rs        # REST API (axum)
-│   ├── auth.rs       # Bearer token middleware (PULSE_ADMIN_TOKEN)
-│   ├── updates.rs    # Binary server + rollout (auto-update)
-│   └── ca.rs         # X.509 CA (rcgen)
-├── pulse-cli/        # TUI interativa (1.7 MB, bin: "pulse")
-│   ├── app.rs        # State + navigation + key handling
-│   ├── client.rs     # REST client (reqwest)
-│   ├── event.rs      # Async event stream (crossterm + tokio)
-│   └── ui.rs         # ratatui rendering (fleet, detail, update, exec)
-└── pulse-tests/      # Integration tests
-```
-
----
-
-## 📖 Documentação Completa
-
-→ **[docs/](./docs/)** — Wiki navegável pelo GitHub
-
----
-
-**MIT License** · Made with ❤️ by GCN Soluções
+MIT License — GCN Solucoes
