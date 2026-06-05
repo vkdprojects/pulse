@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, clippy::collapsible_if, clippy::collapsible_match)]
 
 mod action;
 mod app;

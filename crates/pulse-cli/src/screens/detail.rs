@@ -143,7 +143,7 @@ impl DetailScreen {
         let mem_used = latest.and_then(|m| m.mem_used_mb).unwrap_or(0);
         let mem_total = latest.and_then(|m| m.mem_total_mb).unwrap_or(1);
         let mem_pct = if mem_total > 0 { mem_used as f64 * 100.0 / mem_total as f64 } else { 0.0 };
-        let uptime_s = latest.and_then(|m| m.uptime_secs).unwrap_or(0);
+        let _uptime_s = latest.and_then(|m| m.uptime_secs).unwrap_or(0);
 
         let stats = Layout::horizontal([
             Constraint::Percentage(20),
@@ -170,7 +170,7 @@ impl DetailScreen {
             theme,
         );
         self.render_stat_card(frame, stats[3], "SWAP", &format!("{swap_pct:.0}%"), theme.gauge_color(swap_pct), theme);
-        self.render_stat_card(frame, stats[4], &format!("PROCS"), &format!("{procs}"), theme.teal, theme);
+        self.render_stat_card(frame, stats[4], "PROCS", &format!("{procs}"), theme.teal, theme);
 
         // Row 2: CPU + MEM charts side by side
         let charts = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(layout[1]);
