@@ -131,6 +131,7 @@ impl ProvisionScreen {
         }
 
         // Form mode
+        #[allow(clippy::collapsible_match, clippy::collapsible_if)]
         match key.code {
             KeyCode::Esc => return Action::NavigateHome,
             KeyCode::Tab => self.focused = (self.focused + 1) % self.fields.len(),
@@ -364,7 +365,7 @@ impl ProvisionScreen {
                     format!("{}@{}:{}", host.user, host.hostname, host.port),
                     if selected { style } else { theme.muted() },
                 ),
-                Span::styled(format!("  ({})", key_info.split('/').last().unwrap_or(key_info)), theme.dim()),
+                Span::styled(format!("  ({})", key_info.rsplit('/').next().unwrap_or(key_info)), theme.dim()),
             ]));
         }
         // Manual option
