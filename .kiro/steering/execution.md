@@ -50,7 +50,10 @@ O storage.rs tem dois backends. TODA query precisa das duas variantes:
 
 ## Deploy
 
-- Tag `v*` → CI compila musl estáticos (x86_64 + aarch64) → GitHub Release
-- Install: `curl | sh` baixa do release, cria systemd service
-- Update: re-rodar o mesmo script (idempotente)
-- Master auto-gera: TLS certs, register token (com CA pin), SQLite DB
+- Tag `v*` → CI compila musl estáticos (x86_64 + aarch64) + macOS (arm64 + x86_64) → GitHub Release
+- Version no binário vem de `git describe --tags` (build.rs), não de Cargo.toml
+- Install: `curl | sh` baixa do release, cria systemd service (legacy path)
+- Install preferido: TUI `pulse` → SSH provisioning (download + SFTP + systemd)
+- Update master: TUI `u` no Home (reinstala via SSH)
+- Update agents: automático via master binary server (agents checam a cada 5 min)
+- Agents pré-v0.4.0 não têm updater — precisam de 1 reinstall manual
