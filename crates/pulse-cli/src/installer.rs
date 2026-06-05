@@ -107,10 +107,17 @@ async fn do_install_master(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -
 
     // Wait and read tokens
     p(tx, "Aguardando tokens...").await;
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    let admin_token = ssh_exec(&opts, "sudo cat /var/lib/pulse/admin-token 2>/dev/null").await?.trim().to_string();
-    let register_token =
-        ssh_exec(&opts, "sudo cat /var/lib/pulse/register-token 2>/dev/null").await?.trim().to_string();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let admin_token = ssh_exec(&opts, "sudo cat /var/lib/pulse/admin-token 2>/dev/null || echo ''")
+        .await
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let register_token = ssh_exec(&opts, "sudo cat /var/lib/pulse/register-token 2>/dev/null || echo ''")
+        .await
+        .unwrap_or_default()
+        .trim()
+        .to_string();
 
     // Health check
     let health = ssh_exec(&opts, "curl -sf http://localhost:8080/health 2>/dev/null || echo FAIL").await?;
