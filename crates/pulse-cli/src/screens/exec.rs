@@ -165,6 +165,10 @@ impl Client {
         if let Some(ref t) = self.token {
             req = req.bearer_auth(t);
         }
-        Ok(req.json(&serde_json::json!({"command": command})).send().await?.json().await?)
+        let resp = req.json(&serde_json::json!({"command": command})).send().await?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            anyhow::bail!("Admin token requerido. Configure o token no master ou exporte PULSE_ADMIN_TOKEN");
+        }
+        Ok(resp.json().await?)
     }
 }

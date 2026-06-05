@@ -111,7 +111,8 @@ impl App {
             Action::NavigateFleet(name) => {
                 let name = if name.is_empty() { self.fleet.context_name.clone() } else { name };
                 if let Some(master) = self.config.masters.iter().find(|m| m.name == name) {
-                    self.client = Some(Client::new(&master.url, master.admin_token.clone()));
+                    let token = master.admin_token.clone().or_else(|| std::env::var("PULSE_ADMIN_TOKEN").ok());
+                    self.client = Some(Client::new(&master.url, token));
                     self.fleet = FleetScreen::new(name.clone());
                     self.config.current_context = name;
                     self.config.save().ok();
