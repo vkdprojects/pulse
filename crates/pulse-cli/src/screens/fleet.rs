@@ -17,11 +17,24 @@ pub struct FleetScreen {
     pub filter: String,
     pub filtering: bool,
     pub tick: u64,
+    pub error_msg: Option<String>,
 }
 
 impl FleetScreen {
     pub fn new(context_name: String) -> Self {
-        Self { selected: 0, agents: Vec::new(), context_name, filter: String::new(), filtering: false, tick: 0 }
+        Self {
+            selected: 0,
+            agents: Vec::new(),
+            context_name,
+            filter: String::new(),
+            filtering: false,
+            tick: 0,
+            error_msg: None,
+        }
+    }
+
+    pub fn log_error(&mut self, msg: String) {
+        self.error_msg = Some(msg);
     }
 
     pub fn filtered_agents(&self) -> Vec<&AgentOverview> {

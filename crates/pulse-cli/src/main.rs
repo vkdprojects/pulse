@@ -167,7 +167,19 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                                             if let Some(ref t) = client.token {
                                                 req = req.bearer_auth(t);
                                             }
-                                            let _ = req.json(&serde_json::json!({"name": new_name})).send().await;
+                                            match req.json(&serde_json::json!({"name": new_name})).send().await {
+                                                Ok(resp) if resp.status().is_success() => {
+                                                    // Force refresh to show new name
+                                                    app.refresh_data().await;
+                                                }
+                                                Ok(resp) => {
+                                                    let status = resp.status();
+                                                    app.fleet.log_error(format!("Rename falhou: HTTP {status}. Master precisa ser atualizado (v0.3.1+)."));
+                                                }
+                                                Err(e) => {
+                                                    app.fleet.log_error(format!("Rename falhou: {e}"));
+                                                }
+                                            }
                                         }
                                     }
                                 }
