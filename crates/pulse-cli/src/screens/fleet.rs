@@ -47,6 +47,7 @@ impl FleetScreen {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
+        self.error_msg = None; // Clear error on interaction
         if self.filtering {
             match key.code {
                 KeyCode::Esc | KeyCode::Enter => self.filtering = false,
@@ -197,8 +198,10 @@ impl FleetScreen {
             frame.render_widget(table, chunks[1]);
         } // end else (has agents)
 
-        // Footer
-        let footer = if self.filtering {
+        // Footer (show error if any)
+        let footer = if let Some(ref err) = self.error_msg {
+            Line::from(Span::styled(format!("  ✗ {err}"), theme.offline()))
+        } else if self.filtering {
             Line::from(vec![
                 Span::styled("  /", theme.key_style()),
                 Span::styled(self.filter.clone(), theme.normal()),
