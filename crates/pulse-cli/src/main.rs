@@ -6,6 +6,7 @@ mod client;
 mod config;
 mod event;
 mod screens;
+mod ssh;
 mod ui;
 
 use anyhow::Result;
@@ -21,7 +22,6 @@ use std::io::stdout;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Restore terminal on panic
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
 
     let mut config = Config::load().unwrap_or_default();
 
-    // CLI arg: pulse http://master:8080 → quick connect (skip home screen)
+    // CLI arg: pulse http://master:8080 → quick connect
     if let Some(url) = std::env::args().nth(1) {
         let token = std::env::var("PULSE_ADMIN_TOKEN").ok();
         let name = url.replace("http://", "").replace("https://", "").replace(':', "-").replace('/', "");
@@ -42,24 +42,20 @@ async fn main() -> Result<()> {
 
     let mut app = App::new(config);
 
-    // If has current_context, go directly to fleet
     if !app.config.current_context.is_empty() && app.config.current_master().is_some() {
         let name = app.config.current_context.clone();
         app.process_action(action::Action::NavigateFleet(name));
         app.refresh_data().await;
     }
 
-    // Terminal setup
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let result = run(&mut terminal, &mut app).await;
 
-    // Cleanup
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen)?;
-
     result
 }
 
@@ -68,14 +64,21 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
     let mut events = EventHandler::new(50, refresh_secs);
 
     loop {
+        // Poll SSH events if provisioning
+        app.poll_provision();
+
         terminal.draw(|frame| app.render(frame))?;
 
         let Some(event) = events.next().await else { break };
 
         match event {
             Event::Key(key) => {
-                // Global quit (only when no modal and not in filter mode)
-                if is_quit(&key) && app.modal.is_none() && !matches!(app.screen, Screen::Fleet if app.fleet.filtering) {
+                if is_quit(&key)
+                    && app.modal.is_none()
+                    && !matches!(app.screen, Screen::Fleet if app.fleet.filtering)
+                    && !matches!(app.screen, Screen::Exec)
+                    && !matches!(app.screen, Screen::Provision)
+                {
                     app.quit = true;
                 }
                 if app.quit {
@@ -101,10 +104,9 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                                 }
                             }
                             action::ModalAction::ConfirmDelete(name) => {
-                                if key.code == crossterm::event::KeyCode::Enter {
-                                    app.config.remove_master(name);
-                                    app.config.save().ok();
-                                }
+                                let name = name.clone();
+                                app.config.remove_master(&name);
+                                app.config.save().ok();
                             }
                         }
                     }
@@ -112,17 +114,26 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                     continue;
                 }
 
+                // Handle exec
+                if matches!(action, action::Action::RunExec) {
+                    if let Some(ref client) = app.client {
+                        app.exec.run_command(client).await;
+                    }
+                    continue;
+                }
+
                 app.process_action(action);
 
-                // Trigger data fetch on navigation
-                if matches!(app.screen, Screen::Fleet | Screen::Detail) && app.client.is_some() {
-                    app.refresh_data().await;
+                // Trigger refresh on navigation
+                match app.screen {
+                    Screen::Fleet | Screen::Detail | Screen::Update if app.client.is_some() => {
+                        app.refresh_data().await;
+                    }
+                    _ => {}
                 }
             }
             Event::Tick => {}
-            Event::Refresh => {
-                app.refresh_data().await;
-            }
+            Event::Refresh => app.refresh_data().await,
         }
     }
 

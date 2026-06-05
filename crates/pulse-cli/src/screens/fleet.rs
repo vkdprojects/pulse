@@ -67,7 +67,7 @@ impl FleetScreen {
                 self.filtering = true;
                 self.filter.clear();
             }
-            KeyCode::Char('u') => { /* TODO: update screen */ }
+            KeyCode::Char('u') => return Action::NavigateUpdate,
             KeyCode::Esc => return Action::NavigateHome,
             KeyCode::Char('q') => return Action::Quit,
             _ => {}

@@ -3,9 +3,9 @@ use serde::Deserialize;
 
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
-    base_url: String,
-    token: Option<String>,
+    pub(crate) http: reqwest::Client,
+    pub(crate) base_url: String,
+    pub(crate) token: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
