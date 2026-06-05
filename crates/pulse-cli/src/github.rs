@@ -16,11 +16,7 @@ struct Asset {
 
 /// Download a release binary from a GitHub private repo.
 /// Returns (version_tag, binary_bytes).
-pub async fn download_release_binary(
-    token: &str,
-    repo: &str,
-    binary_name: &str,
-) -> Result<(String, Vec<u8>)> {
+pub async fn download_release_binary(token: &str, repo: &str, binary_name: &str) -> Result<(String, Vec<u8>)> {
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::limited(10)).build()?;
 
     // Get latest release
@@ -42,14 +38,14 @@ pub async fn download_release_binary(
     let release: Release = resp.json().await?;
 
     // Find the asset
-    let asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == binary_name)
-        .ok_or_else(|| {
-            let available: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
-            anyhow::anyhow!("Asset '{binary_name}' não encontrado na release {}. Disponíveis: {:?}", release.tag_name, available)
-        })?;
+    let asset = release.assets.iter().find(|a| a.name == binary_name).ok_or_else(|| {
+        let available: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+        anyhow::anyhow!(
+            "Asset '{binary_name}' não encontrado na release {}. Disponíveis: {:?}",
+            release.tag_name,
+            available
+        )
+    })?;
 
     // Download asset binary (GitHub redirects to S3)
     let download_url = format!("https://api.github.com/repos/{repo}/releases/assets/{}", asset.id);
