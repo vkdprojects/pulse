@@ -93,3 +93,88 @@ pub fn config_path() -> PathBuf {
 fn dirs_home() -> PathBuf {
     directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default() {
+        let cfg = Config::default();
+        assert!(cfg.current_context.is_empty());
+        assert!(cfg.masters.is_empty());
+        assert_eq!(cfg.preferences.refresh_rate_secs, 5);
+    }
+
+    #[test]
+    fn test_config_parse_toml() {
+        let toml_str = r#"
+current_context = "prod"
+
+[preferences]
+refresh_rate_secs = 10
+theme = "dark"
+
+[[masters]]
+name = "prod"
+url = "http://master:8080"
+admin_token = "secret123"
+
+[[masters]]
+name = "staging"
+url = "http://staging:8080"
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.current_context, "prod");
+        assert_eq!(cfg.masters.len(), 2);
+        assert_eq!(cfg.masters[0].name, "prod");
+        assert_eq!(cfg.masters[0].admin_token, Some("secret123".into()));
+        assert_eq!(cfg.masters[1].admin_token, None);
+        assert_eq!(cfg.preferences.refresh_rate_secs, 10);
+    }
+
+    #[test]
+    fn test_add_master() {
+        let mut cfg = Config::default();
+        cfg.add_master("test".into(), "http://localhost:8080".into(), None);
+        assert_eq!(cfg.masters.len(), 1);
+        assert_eq!(cfg.current_context, "test"); // first added becomes current
+    }
+
+    #[test]
+    fn test_add_master_deduplicates() {
+        let mut cfg = Config::default();
+        cfg.add_master("test".into(), "http://old:8080".into(), None);
+        cfg.add_master("test".into(), "http://new:8080".into(), Some("tok".into()));
+        assert_eq!(cfg.masters.len(), 1);
+        assert_eq!(cfg.masters[0].url, "http://new:8080");
+        assert_eq!(cfg.masters[0].admin_token, Some("tok".into()));
+    }
+
+    #[test]
+    fn test_remove_master() {
+        let mut cfg = Config::default();
+        cfg.add_master("a".into(), "http://a:8080".into(), None);
+        cfg.add_master("b".into(), "http://b:8080".into(), None);
+        cfg.current_context = "a".into();
+        cfg.remove_master("a");
+        assert_eq!(cfg.masters.len(), 1);
+        assert_eq!(cfg.current_context, "b"); // switches to remaining
+    }
+
+    #[test]
+    fn test_current_master() {
+        let mut cfg = Config::default();
+        cfg.add_master("prod".into(), "http://prod:8080".into(), Some("tok".into()));
+        cfg.current_context = "prod".into();
+        let m = cfg.current_master().unwrap();
+        assert_eq!(m.url, "http://prod:8080");
+        assert_eq!(m.admin_token, Some("tok".into()));
+    }
+
+    #[test]
+    fn test_current_master_none() {
+        let cfg = Config::default();
+        assert!(cfg.current_master().is_none());
+    }
+}

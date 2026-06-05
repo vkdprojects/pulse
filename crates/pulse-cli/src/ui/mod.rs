@@ -61,3 +61,71 @@ pub fn sparkline_str(data: &[u64], width: usize) -> String {
 
 /// Braille spinner frames for loading indicator
 pub const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_uptime_days() {
+        assert_eq!(format_uptime(90000), "1d1h"); // 1 day + 1 hour
+        assert_eq!(format_uptime(86400), "1d0h");
+        assert_eq!(format_uptime(172800), "2d0h");
+    }
+
+    #[test]
+    fn test_format_uptime_hours() {
+        assert_eq!(format_uptime(3600), "1h0m");
+        assert_eq!(format_uptime(7200), "2h0m");
+        assert_eq!(format_uptime(5400), "1h30m");
+    }
+
+    #[test]
+    fn test_format_uptime_minutes() {
+        assert_eq!(format_uptime(60), "0h1m");
+        assert_eq!(format_uptime(0), "0h0m");
+    }
+
+    #[test]
+    fn test_gauge_bar() {
+        let bar = gauge_bar(50.0, 10);
+        assert_eq!(bar.chars().filter(|c| *c == '█').count(), 5);
+        assert_eq!(bar.chars().filter(|c| *c == '░').count(), 5);
+    }
+
+    #[test]
+    fn test_gauge_bar_empty() {
+        let bar = gauge_bar(0.0, 10);
+        assert_eq!(bar.chars().filter(|c| *c == '░').count(), 10);
+    }
+
+    #[test]
+    fn test_gauge_bar_full() {
+        let bar = gauge_bar(100.0, 10);
+        assert_eq!(bar.chars().filter(|c| *c == '█').count(), 10);
+    }
+
+    #[test]
+    fn test_sparkline_str_empty() {
+        let result = sparkline_str(&[], 10);
+        assert_eq!(result, "──────────");
+    }
+
+    #[test]
+    fn test_sparkline_str_data() {
+        let data = vec![0, 25, 50, 75, 100];
+        let result = sparkline_str(&data, 5);
+        assert_eq!(result.chars().count(), 5);
+        // First char should be lowest (▁), last should be highest (█)
+        let chars: Vec<char> = result.chars().collect();
+        assert_eq!(chars[0], '▁');
+        assert_eq!(chars[4], '█');
+    }
+
+    #[test]
+    fn test_sparkline_str_truncates() {
+        let data = vec![50; 20]; // 20 points but width=5
+        let result = sparkline_str(&data, 5);
+        assert_eq!(result.chars().count(), 5);
+    }
+}

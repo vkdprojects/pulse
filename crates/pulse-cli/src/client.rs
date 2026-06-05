@@ -136,3 +136,58 @@ impl Client {
         Ok(v.get("register_token").and_then(|t| t.as_str()).unwrap_or("").to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_overview_sparkline_empty_history() {
+        let agent = AgentOverview {
+            id: "a".into(),
+            hostname: "test".into(),
+            status: "online".into(),
+            cpu_pct: Some(50.0),
+            mem_pct: None,
+            uptime_secs: None,
+            version: "0.1.0".into(),
+            cpu_history: vec![],
+        };
+        let spark = agent.cpu_history_spark();
+        // With cpu_pct=50% and no history, shows repeated mid-level chars
+        assert_eq!(spark.chars().count(), 10);
+    }
+
+    #[test]
+    fn test_agent_overview_sparkline_with_history() {
+        let agent = AgentOverview {
+            id: "a".into(),
+            hostname: "test".into(),
+            status: "online".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            uptime_secs: None,
+            version: "".into(),
+            cpu_history: vec![10, 30, 50, 70, 90],
+        };
+        let spark = agent.cpu_history_spark();
+        assert!(!spark.is_empty());
+        // Should show increasing levels
+    }
+
+    #[test]
+    fn test_agent_overview_sparkline_no_data() {
+        let agent = AgentOverview {
+            id: "a".into(),
+            hostname: "test".into(),
+            status: "offline".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            uptime_secs: None,
+            version: "".into(),
+            cpu_history: vec![],
+        };
+        let spark = agent.cpu_history_spark();
+        assert_eq!(spark, "──────────");
+    }
+}

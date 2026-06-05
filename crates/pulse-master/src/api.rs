@@ -184,11 +184,8 @@ async fn get_connections(State(state): State<AppState>, Path(agent_id): Path<Str
 }
 
 async fn get_register_token() -> Json<Value> {
-    let token = std::fs::read_to_string("/var/lib/pulse/register-token")
-        .or_else(|_| std::fs::read_to_string("data/register-token"))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let paths = ["/var/lib/pulse/register-token", "data/register-token"];
+    let token = paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).unwrap_or_default().trim().to_string();
     Json(json!({"register_token": token}))
 }
 
