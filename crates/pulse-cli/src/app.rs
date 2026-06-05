@@ -242,6 +242,13 @@ fn create_modal(action: ModalAction) -> Modal {
         ModalAction::ConfirmDelete(ref name) => {
             Modal { title: format!("Remover '{name}'?"), fields: vec![], focused: 0, action, confirmed: false }
         }
+        ModalAction::RenameMaster(ref name) => Modal {
+            title: "Renomear Master".into(),
+            fields: vec![ModalField { label: "Novo nome".into(), value: name.clone(), placeholder: "".into() }],
+            focused: 0,
+            action,
+            confirmed: false,
+        },
     }
 }
 

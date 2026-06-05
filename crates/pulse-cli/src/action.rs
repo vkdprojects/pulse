@@ -21,5 +21,6 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub enum ModalAction {
     AddMaster,
+    RenameMaster(String), // current name
     ConfirmDelete(String),
 }

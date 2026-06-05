@@ -80,6 +80,27 @@ pub struct NetInterface {
     pub tx_bytes: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContainerInfo {
+    pub id: String,
+    pub name: String,
+    pub image: Option<String>,
+    pub state: Option<String>,
+    pub cpu_pct: Option<f64>,
+    pub mem_mb: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GpuInfo {
+    pub index: i32,
+    pub name: Option<String>,
+    pub utilization_pct: Option<i32>,
+    pub mem_used_mb: Option<i64>,
+    pub mem_total_mb: Option<i64>,
+    pub temp_c: Option<i32>,
+    pub power_watts: Option<i32>,
+}
+
 impl Client {
     pub fn new(base_url: &str, token: Option<String>) -> Self {
         Self {
@@ -125,6 +146,23 @@ impl Client {
         let v = self.get(&format!("/api/agents/{id}/network")).await?;
         let ifaces = v.get("interfaces").cloned().unwrap_or_default();
         Ok(serde_json::from_value(ifaces).unwrap_or_default())
+    }
+
+    pub async fn agent_containers(&self, id: &str) -> Result<Vec<ContainerInfo>> {
+        let v = self.get(&format!("/api/agents/{id}/containers")).await?;
+        let containers = v.get("containers").cloned().unwrap_or_default();
+        Ok(serde_json::from_value(containers).unwrap_or_default())
+    }
+
+    pub async fn agent_gpu(&self, id: &str) -> Result<Vec<GpuInfo>> {
+        let v = self.get(&format!("/api/agents/{id}/gpu")).await?;
+        let gpus = v.get("gpus").cloned().unwrap_or_default();
+        Ok(serde_json::from_value(gpus).unwrap_or_default())
+    }
+
+    pub async fn agent_latest(&self, id: &str) -> Result<serde_json::Value> {
+        let v = self.get(&format!("/api/agents/{id}/metrics/latest")).await?;
+        Ok(v)
     }
 
     pub async fn health_check(&self) -> bool {

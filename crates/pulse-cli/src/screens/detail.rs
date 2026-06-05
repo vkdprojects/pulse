@@ -18,6 +18,9 @@ pub struct DetailScreen {
     pub processes: Vec<ProcessInfo>,
     pub disks: Vec<DiskInfo>,
     pub network: Vec<NetInterface>,
+    pub containers: Vec<crate::client::ContainerInfo>,
+    pub gpus: Vec<crate::client::GpuInfo>,
+    pub latest: serde_json::Value,
     pub tab: usize,
 }
 
@@ -30,30 +33,41 @@ impl DetailScreen {
             processes: Vec::new(),
             disks: Vec::new(),
             network: Vec::new(),
+            containers: Vec::new(),
+            gpus: Vec::new(),
+            latest: serde_json::Value::Null,
             tab: 0,
         }
     }
 
     pub async fn refresh(&mut self, client: &Client) {
         let id = &self.agent_id;
-        let (metrics, procs, disks, net) = tokio::join!(
+        let (metrics, procs, disks, net, containers, gpus, latest) = tokio::join!(
             client.agent_metrics(id),
             client.agent_processes(id),
             client.agent_disks(id),
             client.agent_network(id),
+            client.agent_containers(id),
+            client.agent_gpu(id),
+            client.agent_latest(id),
         );
         self.metrics = metrics.unwrap_or_default();
         self.processes = procs.unwrap_or_default();
         self.disks = disks.unwrap_or_default();
         self.network = net.unwrap_or_default();
+        self.containers = containers.unwrap_or_default();
+        self.gpus = gpus.unwrap_or_default();
+        self.latest = latest.unwrap_or_default();
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
         match key.code {
             KeyCode::Esc => return Action::NavigateFleet(String::new()),
-            KeyCode::Tab => self.tab = (self.tab + 1) % 2,
+            KeyCode::Tab => self.tab = (self.tab + 1) % 4,
             KeyCode::Char('1') => self.tab = 0,
             KeyCode::Char('2') => self.tab = 1,
+            KeyCode::Char('3') => self.tab = 2,
+            KeyCode::Char('4') => self.tab = 3,
             KeyCode::Char('q') => return Action::Quit,
             _ => {}
         }
@@ -70,7 +84,7 @@ impl DetailScreen {
         let version = self.agent.as_ref().map(|a| a.version.as_str()).unwrap_or("");
         let status_style = if status == "online" { theme.online() } else { theme.offline() };
 
-        let tabs = ["Overview", "Processes"];
+        let tabs = ["System", "Processes", "Containers", "GPU"];
         let tab_spans: Vec<Span> = tabs
             .iter()
             .enumerate()
@@ -106,10 +120,15 @@ impl DetailScreen {
         match self.tab {
             0 => self.render_overview(frame, chunks[1], theme),
             1 => self.render_processes(frame, chunks[1], theme),
+            2 => self.render_containers(frame, chunks[1], theme),
+            3 => self.render_gpu(frame, chunks[1], theme),
             _ => {}
         }
 
-        let footer = ui::footer_line(&[("Tab", "trocar"), ("e", "exec"), ("Esc", "voltar"), ("q", "sair")], theme);
+        let footer = ui::footer_line(
+            &[("Tab", "trocar"), ("1-4", "tabs"), ("e", "exec"), ("Esc", "voltar"), ("q", "sair")],
+            theme,
+        );
         let footer_w = Paragraph::new(footer)
             .block(Block::default().borders(Borders::TOP).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(footer_w, chunks[2]);
@@ -137,9 +156,21 @@ impl DetailScreen {
 
         self.render_stat_card(frame, stats[0], "CPU", &format!("{cpu:.1}%"), theme.gauge_color(cpu), theme);
         self.render_stat_card(frame, stats[1], "MEM", &format!("{mem_pct:.1}%"), theme.gauge_color(mem_pct), theme);
-        self.render_stat_card(frame, stats[2], "RAM", &format!("{}/{} MB", mem_used, mem_total), theme.mauve, theme);
-        self.render_stat_card(frame, stats[3], "UPTIME", &ui::format_uptime(uptime_s), theme.blue, theme);
-        self.render_stat_card(frame, stats[4], "DISKS", &format!("{}", self.disks.len()), theme.teal, theme);
+        // Load avg and swap from latest API
+        let load_1m = self.latest.get("load_1m").and_then(|v| v.as_f64());
+        let swap_pct = self.latest.get("swap_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let procs = self.latest.get("procs_running").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        self.render_stat_card(
+            frame,
+            stats[2],
+            "LOAD",
+            &load_1m.map(|v| format!("{v:.2}")).unwrap_or("—".into()),
+            theme.peach,
+            theme,
+        );
+        self.render_stat_card(frame, stats[3], "SWAP", &format!("{swap_pct:.0}%"), theme.gauge_color(swap_pct), theme);
+        self.render_stat_card(frame, stats[4], &format!("PROCS"), &format!("{procs}"), theme.teal, theme);
 
         // Row 2: CPU + MEM charts side by side
         let charts = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(layout[1]);
@@ -317,6 +348,95 @@ impl DetailScreen {
                 .border_style(theme.border())
                 .title(Span::styled(" Top Processes ", theme.muted())),
         );
+        frame.render_widget(table, area);
+    }
+
+    fn render_containers(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        if self.containers.is_empty() {
+            let empty = Paragraph::new(Span::styled("  Nenhum container detectado.", theme.muted())).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BORDER)
+                    .border_style(theme.border())
+                    .title(" Containers "),
+            );
+            frame.render_widget(empty, area);
+            return;
+        }
+        let rows: Vec<Row> = self
+            .containers
+            .iter()
+            .map(|c| {
+                let state_style = if c.state.as_deref() == Some("running") { theme.online() } else { theme.offline() };
+                Row::new(vec![
+                    c.name.clone(),
+                    c.state.clone().unwrap_or_default(),
+                    c.cpu_pct.map(|v| format!("{v:.1}%")).unwrap_or_default(),
+                    c.mem_mb.map(|v| format!("{v} MB")).unwrap_or_default(),
+                    c.image.clone().unwrap_or_default(),
+                ])
+                .style(state_style)
+            })
+            .collect();
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Min(14),
+                Constraint::Length(8),
+                Constraint::Length(6),
+                Constraint::Length(8),
+                Constraint::Min(16),
+            ],
+        )
+        .header(Row::new(vec!["NAME", "STATE", "CPU", "MEM", "IMAGE"]).style(theme.dim()))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BORDER)
+                .border_style(theme.border())
+                .title(" Containers "),
+        );
+        frame.render_widget(table, area);
+    }
+
+    fn render_gpu(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        if self.gpus.is_empty() {
+            let empty = Paragraph::new(Span::styled("  Nenhuma GPU detectada.", theme.muted())).block(
+                Block::default().borders(Borders::ALL).border_type(BORDER).border_style(theme.border()).title(" GPU "),
+            );
+            frame.render_widget(empty, area);
+            return;
+        }
+        let rows: Vec<Row> = self
+            .gpus
+            .iter()
+            .map(|g| {
+                let util = g.utilization_pct.unwrap_or(0) as f64;
+                Row::new(vec![
+                    g.name.clone().unwrap_or_else(|| format!("GPU {}", g.index)),
+                    g.utilization_pct.map(|v| format!("{v}%")).unwrap_or_default(),
+                    g.mem_used_mb.map(|v| format!("{v} MB")).unwrap_or_default(),
+                    g.mem_total_mb.map(|v| format!("{v} MB")).unwrap_or_default(),
+                    g.temp_c.map(|v| format!("{v}°C")).unwrap_or_default(),
+                    g.power_watts.map(|v| format!("{v}W")).unwrap_or_default(),
+                    ui::gauge_bar(util, 10),
+                ])
+            })
+            .collect();
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Min(12),
+                Constraint::Length(5),
+                Constraint::Length(8),
+                Constraint::Length(8),
+                Constraint::Length(5),
+                Constraint::Length(4),
+                Constraint::Length(12),
+            ],
+        )
+        .header(Row::new(vec!["GPU", "UTIL", "USED", "TOTAL", "TEMP", "PWR", ""]).style(theme.dim()))
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).border_style(theme.border()).title(" GPU "));
         frame.render_widget(table, area);
     }
 }

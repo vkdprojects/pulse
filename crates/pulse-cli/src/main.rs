@@ -145,6 +145,19 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                                 app.config.remove_master(&name);
                                 app.config.save().ok();
                             }
+                            action::ModalAction::RenameMaster(old_name) => {
+                                if let Some(new_name) = modal.fields.first().map(|f| f.value.clone()) {
+                                    if !new_name.is_empty() {
+                                        if let Some(m) = app.config.masters.iter_mut().find(|m| m.name == *old_name) {
+                                            m.name = new_name.clone();
+                                        }
+                                        if app.config.current_context == *old_name {
+                                            app.config.current_context = new_name;
+                                        }
+                                        app.config.save().ok();
+                                    }
+                                }
+                            }
                         }
                     }
                     app.modal = None;

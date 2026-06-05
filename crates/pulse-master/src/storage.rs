@@ -819,50 +819,110 @@ impl Storage {
     pub async fn get_latest_metric(&self, agent_id: &str) -> Result<Option<serde_json::Value>> {
         match self {
             Storage::Postgres(pool) => {
-                let row: Option<(String, Option<i32>, Option<i64>, Option<i64>, Option<i64>, Option<i32>)> = sqlx::query_as(
-                    "SELECT time::text, cpu_total_bp, mem_used, mem_total, uptime_secs, battery_pct FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
+                let row: Option<(String, Option<i32>, Option<i64>, Option<i64>, Option<i64>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i64>, Option<i64>, Option<i32>, Option<i32>, Option<String>)> = sqlx::query_as(
+                    "SELECT time::text, cpu_total_bp, mem_used, mem_total, uptime_secs, battery_pct, load_1m, load_5m, load_15m, swap_total, swap_used, procs_total, procs_running, cpu_cores_bp::text FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
                 )
                 .bind(agent_id)
                 .fetch_optional(pool)
                 .await?;
-                Ok(row.map(|(time, cpu, mem_used, mem_total, uptime, battery)| {
-                    let mem_used_mb = mem_used.map(|v| v / 1_048_576);
-                    let mem_total_mb = mem_total.map(|v| v / 1_048_576);
-                    let mem_pct = match (mem_used, mem_total) {
-                        (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
-                        _ => None,
-                    };
-                    serde_json::json!({
-                        "agent_id": agent_id, "time": time,
-                        "cpu_pct": cpu.map(|v| v as f64 / 100.0),
-                        "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb,
-                        "mem_pct": mem_pct, "uptime_secs": uptime,
-                        "battery_pct": battery,
-                    })
-                }))
+                Ok(row.map(
+                    |(
+                        time,
+                        cpu,
+                        mem_used,
+                        mem_total,
+                        uptime,
+                        battery,
+                        load1,
+                        load5,
+                        load15,
+                        swap_total,
+                        swap_used,
+                        procs_total,
+                        procs_running,
+                        cores_str,
+                    )| {
+                        let mem_used_mb = mem_used.map(|v| v / 1_048_576);
+                        let mem_total_mb = mem_total.map(|v| v / 1_048_576);
+                        let mem_pct = match (mem_used, mem_total) {
+                            (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
+                            _ => None,
+                        };
+                        let swap_pct = match (swap_used, swap_total) {
+                            (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
+                            _ => None,
+                        };
+                        serde_json::json!({
+                            "agent_id": agent_id, "time": time,
+                            "cpu_pct": cpu.map(|v| v as f64 / 100.0),
+                            "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb,
+                            "mem_pct": mem_pct, "uptime_secs": uptime,
+                            "battery_pct": battery,
+                            "load_1m": load1.map(|v| v as f64 / 100.0),
+                            "load_5m": load5.map(|v| v as f64 / 100.0),
+                            "load_15m": load15.map(|v| v as f64 / 100.0),
+                            "swap_total_mb": swap_total.map(|v| v / 1_048_576),
+                            "swap_used_mb": swap_used.map(|v| v / 1_048_576),
+                            "swap_pct": swap_pct,
+                            "procs_total": procs_total,
+                            "procs_running": procs_running,
+                            "cpu_cores": cores_str,
+                        })
+                    },
+                ))
             }
             Storage::Sqlite(pool) => {
-                let row: Option<(String, Option<i32>, Option<i64>, Option<i64>, Option<i64>, Option<i32>)> = sqlx::query_as(
-                    "SELECT time, cpu_total_bp, mem_used, mem_total, uptime_secs, battery_pct FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
+                let row: Option<(String, Option<i32>, Option<i64>, Option<i64>, Option<i64>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i64>, Option<i64>, Option<i32>, Option<i32>, Option<String>)> = sqlx::query_as(
+                    "SELECT time, cpu_total_bp, mem_used, mem_total, uptime_secs, battery_pct, load_1m, load_5m, load_15m, swap_total, swap_used, procs_total, procs_running, cpu_cores_bp FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
                 )
                 .bind(agent_id)
                 .fetch_optional(pool)
                 .await?;
-                Ok(row.map(|(time, cpu, mem_used, mem_total, uptime, battery)| {
-                    let mem_used_mb = mem_used.map(|v| v / 1_048_576);
-                    let mem_total_mb = mem_total.map(|v| v / 1_048_576);
-                    let mem_pct = match (mem_used, mem_total) {
-                        (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
-                        _ => None,
-                    };
-                    serde_json::json!({
-                        "agent_id": agent_id, "time": time,
-                        "cpu_pct": cpu.map(|v| v as f64 / 100.0),
-                        "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb,
-                        "mem_pct": mem_pct, "uptime_secs": uptime,
-                        "battery_pct": battery,
-                    })
-                }))
+                Ok(row.map(
+                    |(
+                        time,
+                        cpu,
+                        mem_used,
+                        mem_total,
+                        uptime,
+                        battery,
+                        load1,
+                        load5,
+                        load15,
+                        swap_total,
+                        swap_used,
+                        procs_total,
+                        procs_running,
+                        cores_str,
+                    )| {
+                        let mem_used_mb = mem_used.map(|v| v / 1_048_576);
+                        let mem_total_mb = mem_total.map(|v| v / 1_048_576);
+                        let mem_pct = match (mem_used, mem_total) {
+                            (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
+                            _ => None,
+                        };
+                        let swap_pct = match (swap_used, swap_total) {
+                            (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
+                            _ => None,
+                        };
+                        serde_json::json!({
+                            "agent_id": agent_id, "time": time,
+                            "cpu_pct": cpu.map(|v| v as f64 / 100.0),
+                            "mem_used_mb": mem_used_mb, "mem_total_mb": mem_total_mb,
+                            "mem_pct": mem_pct, "uptime_secs": uptime,
+                            "battery_pct": battery,
+                            "load_1m": load1.map(|v| v as f64 / 100.0),
+                            "load_5m": load5.map(|v| v as f64 / 100.0),
+                            "load_15m": load15.map(|v| v as f64 / 100.0),
+                            "swap_total_mb": swap_total.map(|v| v / 1_048_576),
+                            "swap_used_mb": swap_used.map(|v| v / 1_048_576),
+                            "swap_pct": swap_pct,
+                            "procs_total": procs_total,
+                            "procs_running": procs_running,
+                            "cpu_cores": cores_str,
+                        })
+                    },
+                ))
             }
         }
     }
