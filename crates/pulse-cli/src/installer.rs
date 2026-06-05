@@ -134,9 +134,33 @@ async fn do_install_master(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -
 
 async fn do_install_agent(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Result<InstallResult> {
     let master_url = opts.master_url.as_deref().unwrap_or("");
-    let register_token = opts.register_token.as_deref().unwrap_or("");
-    if register_token.is_empty() {
-        bail!("Register token necessário. Instale o master primeiro.");
+    let mut register_token = opts.register_token.as_deref().unwrap_or("").to_string();
+
+    // Auto-fetch register token from master if not provided
+    if register_token.is_empty() && !master_url.is_empty() {
+        p(tx, "Buscando register token do master...").await;
+        let client = reqwest::Client::new();
+        // Try with admin token first
+        let url = format!("{master_url}/api/register-token");
+        if let Ok(resp) = client.get(&url).header("Authorization", format!("Bearer {}", opts.github_token)).send().await
+        {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(t) = body.get("register_token").and_then(|v| v.as_str()) {
+                    register_token = t.to_string();
+                    p(tx, "✓ Register token obtido do master").await;
+                }
+            }
+        }
+        // Fallback: try reading from master via SSH (if master is on same network)
+        if register_token.is_empty() {
+            bail!(
+                "Não foi possível obter o register token.\n\
+                 O master precisa estar rodando e acessível em {master_url}.\n\
+                 Verifique se o master tem o endpoint /api/register-token."
+            );
+        }
+    } else if register_token.is_empty() {
+        bail!("Master URL necessária para instalar agent. Conecte a um master primeiro.");
     }
 
     p(tx, "Testando conexão SSH...").await;

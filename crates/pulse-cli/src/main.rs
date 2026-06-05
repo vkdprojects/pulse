@@ -84,12 +84,11 @@ async fn run_setup(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, c
                 if !setup.token_input.is_empty() {
                     config.github_token = Some(setup.token_input.clone());
                     config.github_repo = Some(setup.repo_input.clone());
+                    config.save().ok();
                 }
-                config.save().ok();
                 break;
             }
             if matches!(action, action::Action::CloseModal) {
-                config.save().ok();
                 break;
             }
         }
