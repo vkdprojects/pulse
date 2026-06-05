@@ -231,15 +231,24 @@ impl App {
                 && let Some(ref result) = self.provision.result
                 && !result.admin_token.is_empty()
             {
-                // Master was installed — save to config
-                let name = self
-                    .provision
-                    .fields
-                    .iter()
-                    .find(|f| f.label == "Nome")
-                    .map(|f| f.value.clone())
-                    .unwrap_or_else(|| "master".into());
-                self.config.add_master(name, result.master_url.clone(), Some(result.admin_token.clone()));
+                // Only add new master if URL not already in config (avoid duplicates on update)
+                let already_exists = self.config.masters.iter().any(|m| m.url == result.master_url);
+                if !already_exists {
+                    let name = self
+                        .provision
+                        .fields
+                        .iter()
+                        .find(|f| f.label == "Nome")
+                        .map(|f| f.value.clone())
+                        .filter(|v| !v.is_empty())
+                        .unwrap_or_else(|| "master".into());
+                    self.config.add_master(name, result.master_url.clone(), Some(result.admin_token.clone()));
+                } else {
+                    // Update existing master's admin token
+                    if let Some(m) = self.config.masters.iter_mut().find(|m| m.url == result.master_url) {
+                        m.admin_token = Some(result.admin_token.clone());
+                    }
+                }
                 self.config.save().ok();
             }
         }
