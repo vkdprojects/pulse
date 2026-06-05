@@ -1,5 +1,5 @@
 use crate::action::Action;
-use crate::installer::{self, InstallEvent, InstallOpts};
+use crate::installer::{self, InstallEvent};
 use crate::ui::{BORDER, theme::Theme};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -46,15 +46,13 @@ impl ProvisionScreen {
         master_url: String,
         register_token: String,
     ) -> Self {
-        let mut fields = vec![
+        let fields = vec![
             Field { label: "Host", value: String::new(), placeholder: "192.168.1.100", is_password: false },
             Field { label: "Port", value: "22".into(), placeholder: "22", is_password: false },
             Field { label: "User", value: "root".into(), placeholder: "root", is_password: false },
-            Field { label: "Password", value: String::new(), placeholder: "", is_password: true },
+            Field { label: "Auth", value: "password".into(), placeholder: "password | key", is_password: false },
+            Field { label: "Secret", value: String::new(), placeholder: "password or key path", is_password: true },
         ];
-        if target == ProvisionTarget::Master {
-            fields.push(Field { label: "Nome", value: String::new(), placeholder: "production", is_password: false });
-        }
         Self {
             target,
             fields,
@@ -68,6 +66,20 @@ impl ProvisionScreen {
             github_repo,
             master_url,
             register_token,
+        }
+    }
+
+    /// Pre-fill from an SSH config host entry
+    pub fn fill_from_ssh_host(&mut self, host: &crate::ssh_config::SshHost) {
+        self.fields[0].value = host.hostname.clone();
+        self.fields[1].value = host.port.to_string();
+        if !host.user.is_empty() {
+            self.fields[2].value = host.user.clone();
+        }
+        if let Some(ref key) = host.identity_file {
+            self.fields[3].value = "key".into();
+            self.fields[4].value = key.clone();
+            self.fields[4].is_password = false;
         }
     }
 
@@ -95,7 +107,7 @@ impl ProvisionScreen {
                 self.fields[self.focused].value.push(c);
             }
             KeyCode::Enter => {
-                if !self.fields[0].value.is_empty() && !self.fields[3].value.is_empty() {
+                if !self.fields[0].value.is_empty() && !self.fields[4].value.is_empty() {
                     self.start_install();
                 }
             }
@@ -108,18 +120,22 @@ impl ProvisionScreen {
         let host = self.fields[0].value.clone();
         let port: u16 = self.fields[1].value.parse().unwrap_or(22);
         let user = self.fields[2].value.clone();
-        let password = self.fields[3].value.clone();
+        let auth_mode = self.fields[3].value.clone();
+        let secret = self.fields[4].value.clone();
+
+        let auth =
+            if auth_mode == "key" { installer::SshAuth::Key(secret) } else { installer::SshAuth::Password(secret) };
 
         let (tx, rx) = mpsc::channel(64);
         self.event_rx = Some(rx);
         self.running = true;
         self.log.clear();
 
-        let opts = InstallOpts {
+        let opts = installer::InstallOpts {
             host,
             port,
             user,
-            password,
+            auth,
             github_token: self.github_token.clone(),
             github_repo: self.github_repo.clone(),
             master_url: if self.target == ProvisionTarget::Agent { Some(self.master_url.clone()) } else { None },

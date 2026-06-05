@@ -8,6 +8,7 @@ mod event;
 mod github;
 mod installer;
 mod screens;
+mod ssh_config;
 mod ui;
 
 use anyhow::Result;

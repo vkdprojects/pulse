@@ -448,8 +448,8 @@ mod tests {
 
         assert!(matches!(app.screen, Screen::Provision));
         assert_eq!(app.provision.target, ProvisionTarget::Agent);
-        // Agent provision has 4 fields (host, port, user, password)
-        assert_eq!(app.provision.fields.len(), 4);
+        // 5 fields: host, port, user, auth mode, secret
+        assert_eq!(app.provision.fields.len(), 5);
     }
 
     #[test]

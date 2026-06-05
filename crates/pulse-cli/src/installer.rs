@@ -31,11 +31,17 @@ pub struct InstallOpts {
     pub host: String,
     pub port: u16,
     pub user: String,
-    pub password: String,
+    pub auth: SshAuth,
     pub github_token: String,
     pub github_repo: String,
-    pub master_url: Option<String>, // None = installing master, Some = agent needs this
-    pub register_token: Option<String>, // For agent installs
+    pub master_url: Option<String>,
+    pub register_token: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum SshAuth {
+    Password(String),
+    Key(String), // path to private key file
 }
 
 /// Install pulse-master on a remote server via SSH.
@@ -201,10 +207,23 @@ async fn connect_ssh(opts: &InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Res
     let config = Arc::new(client::Config::default());
     let mut session = client::connect(config, (&*opts.host, opts.port), SshHandler).await?;
 
-    let auth = session.authenticate_password(&opts.user, &opts.password).await?;
-    if !auth {
-        bail!("Autenticação SSH falhou");
+    match &opts.auth {
+        SshAuth::Password(password) => {
+            let auth = session.authenticate_password(&opts.user, password).await?;
+            if !auth {
+                bail!("Autenticação por senha falhou");
+            }
+        }
+        SshAuth::Key(key_path) => {
+            tx.send(InstallEvent::Progress(format!("  Key: {key_path}"))).await.ok();
+            let key = russh::keys::load_secret_key(key_path, None)?;
+            let auth = session.authenticate_publickey(&opts.user, Arc::new(key)).await?;
+            if !auth {
+                bail!("Autenticação por chave falhou");
+            }
+        }
     }
+
     tx.send(InstallEvent::Progress("✓ Conectado via SSH".into())).await.ok();
     Ok(session)
 }
