@@ -18,6 +18,33 @@ pub struct AgentOverview {
     pub uptime_secs: Option<i64>,
     #[serde(default)]
     pub version: String,
+    // Local sparkline history (not from API)
+    #[serde(skip)]
+    pub cpu_history: Vec<u64>,
+}
+
+impl AgentOverview {
+    pub fn cpu_history_spark(&self) -> String {
+        const CHARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        if self.cpu_history.is_empty() {
+            return self
+                .cpu_pct
+                .map(|v| {
+                    let idx = ((v / 100.0) * 7.0).round() as usize;
+                    CHARS[idx.min(7)].to_string().repeat(10)
+                })
+                .unwrap_or_else(|| "──────────".into());
+        }
+        self.cpu_history
+            .iter()
+            .rev()
+            .take(10)
+            .map(|v| {
+                let idx = ((*v as f64 / 100.0) * 7.0).round() as usize;
+                CHARS[idx.min(7)]
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,16 +73,13 @@ pub struct DiskInfo {
     pub used_pct: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct NetInterface {
-    pub name: String,
-    pub rx_bytes: Option<i64>,
-    pub tx_bytes: Option<i64>,
-}
-
 impl Client {
     pub fn new(base_url: &str, token: Option<String>) -> Self {
-        Self { http: reqwest::Client::new(), base_url: base_url.trim_end_matches('/').to_string(), token }
+        Self {
+            http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_default(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token,
+        }
     }
 
     async fn get(&self, path: &str) -> Result<serde_json::Value> {
@@ -90,32 +114,7 @@ impl Client {
         Ok(serde_json::from_value(disks).unwrap_or_default())
     }
 
-    pub async fn agent_network(&self, id: &str) -> Result<Vec<NetInterface>> {
-        let v = self.get(&format!("/api/agents/{id}/network")).await?;
-        let ifaces = v.get("interfaces").cloned().unwrap_or_default();
-        Ok(serde_json::from_value(ifaces).unwrap_or_default())
-    }
-
-    pub async fn exec_command(&self, agent_id: &str, command: &str) -> Result<serde_json::Value> {
-        let mut req = self.http.post(format!("{}/api/agents/{agent_id}/exec", self.base_url));
-        if let Some(ref t) = self.token {
-            req = req.bearer_auth(t);
-        }
-        let body = serde_json::json!({"command": command});
-        Ok(req.json(&body).send().await?.json().await?)
-    }
-
-    pub async fn get_rollout(&self) -> Result<serde_json::Value> {
-        self.get("/api/updates/rollout").await
-    }
-
-    #[allow(dead_code)]
-    pub async fn set_rollout(&self, version: &str, pct: u8) -> Result<serde_json::Value> {
-        let mut req = self.http.post(format!("{}/api/updates/rollout", self.base_url));
-        if let Some(ref t) = self.token {
-            req = req.bearer_auth(t);
-        }
-        let body = serde_json::json!({"version": version, "rollout_pct": pct});
-        Ok(req.json(&body).send().await?.json().await?)
+    pub async fn health_check(&self) -> bool {
+        self.get("/health").await.is_ok()
     }
 }

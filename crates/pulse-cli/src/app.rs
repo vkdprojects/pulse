@@ -1,268 +1,253 @@
-use crate::client::{AgentMetric, AgentOverview, Client, DiskInfo, NetInterface, ProcessInfo};
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::action::{Action, ModalAction};
+use crate::client::Client;
+use crate::config::Config;
+use crate::screens::{detail::DetailScreen, fleet::FleetScreen, home::HomeScreen};
+use crate::ui::theme::Theme;
+use crossterm::event::KeyEvent;
+use ratatui::Frame;
 
-#[derive(Clone, Copy, PartialEq)]
 pub enum Screen {
+    Home,
     Fleet,
     Detail,
-    Update,
-    Exec,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum DetailTab {
-    System,
-    Processes,
 }
 
 pub struct App {
-    pub client: Client,
+    pub config: Config,
+    pub theme: Theme,
     pub screen: Screen,
     pub quit: bool,
 
-    // Fleet state
-    pub agents: Vec<AgentOverview>,
-    pub selected: usize,
-    pub filter: String,
-    pub filtering: bool,
+    pub home: HomeScreen,
+    pub fleet: FleetScreen,
+    pub detail: DetailScreen,
 
-    // Detail state
-    pub detail_tab: DetailTab,
-    pub metrics: Vec<AgentMetric>,
-    pub processes: Vec<ProcessInfo>,
-    pub disks: Vec<DiskInfo>,
-    pub network: Vec<NetInterface>,
+    pub client: Option<Client>,
+    pub modal: Option<Modal>,
+}
 
-    // Update state
-    pub target_version: String,
-    pub rollout_pct: u8,
+pub struct Modal {
+    pub title: String,
+    pub fields: Vec<ModalField>,
+    pub focused: usize,
+    pub action: ModalAction,
+}
 
-    // Exec state
-    pub exec_input: String,
-    pub exec_output: String,
-    pub exec_running: bool,
-
-    pub loading: bool,
-    pub error: Option<String>,
+pub struct ModalField {
+    pub label: String,
+    pub value: String,
+    pub placeholder: String,
 }
 
 impl App {
-    pub fn new(client: Client) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
-            client,
-            screen: Screen::Fleet,
+            theme: Theme::default(),
+            screen: Screen::Home,
             quit: false,
-            agents: Vec::new(),
-            selected: 0,
-            filter: String::new(),
-            filtering: false,
-            detail_tab: DetailTab::System,
-            metrics: Vec::new(),
-            processes: Vec::new(),
-            disks: Vec::new(),
-            network: Vec::new(),
-            target_version: String::new(),
-            rollout_pct: 100,
-            exec_input: String::new(),
-            exec_output: String::new(),
-            exec_running: false,
-            loading: true,
-            error: None,
+            home: HomeScreen::new(),
+            fleet: FleetScreen::new(String::new()),
+            detail: DetailScreen::new(String::new()),
+            client: None,
+            modal: None,
+            config,
         }
     }
 
-    pub fn filtered_agents(&self) -> Vec<&AgentOverview> {
-        if self.filter.is_empty() {
-            self.agents.iter().collect()
-        } else {
-            let f = self.filter.to_lowercase();
-            self.agents.iter().filter(|a| a.hostname.to_lowercase().contains(&f) || a.id.contains(&f)).collect()
-        }
-    }
-
-    pub fn selected_agent(&self) -> Option<&AgentOverview> {
-        self.filtered_agents().get(self.selected).copied()
-    }
-
-    pub async fn refresh_fleet(&mut self) {
-        match self.client.overview().await {
-            Ok(agents) => {
-                self.agents = agents;
-                self.error = None;
-            }
-            Err(e) => self.error = Some(e.to_string()),
-        }
-        self.loading = false;
-    }
-
-    pub async fn refresh_detail(&mut self) {
-        let Some(agent) = self.selected_agent().map(|a| a.id.clone()) else { return };
-        let (metrics, procs, disks, net) = tokio::join!(
-            self.client.agent_metrics(&agent),
-            self.client.agent_processes(&agent),
-            self.client.agent_disks(&agent),
-            self.client.agent_network(&agent),
-        );
-        self.metrics = metrics.unwrap_or_default();
-        self.processes = procs.unwrap_or_default();
-        self.disks = disks.unwrap_or_default();
-        self.network = net.unwrap_or_default();
-    }
-
-    pub async fn refresh_rollout(&mut self) {
-        if let Ok(v) = self.client.get_rollout().await
-            && let Some(cfg) = v.get("config")
-        {
-            self.target_version = cfg.get("target_version").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            self.rollout_pct = cfg.get("rollout_pct").and_then(|v| v.as_u64()).unwrap_or(100) as u8;
-        }
-    }
-
-    /// Returns true if async action needed (detail refresh, exec, etc)
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
-        if self.filtering {
-            self.handle_filter_key(key);
-            return Action::None;
+        // Modal captures all input
+        if let Some(ref mut modal) = self.modal {
+            return handle_modal_key(modal, key);
         }
+
         match self.screen {
-            Screen::Fleet => self.handle_fleet_key(key),
-            Screen::Detail => self.handle_detail_key(key),
-            Screen::Update => self.handle_update_key(key),
-            Screen::Exec => self.handle_exec_key(key),
+            Screen::Home => self.home.handle_key(key, &self.config),
+            Screen::Fleet => self.fleet.handle_key(key),
+            Screen::Detail => self.detail.handle_key(key),
         }
     }
 
-    fn handle_fleet_key(&mut self, key: KeyEvent) -> Action {
-        let len = self.filtered_agents().len();
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                if len > 0 {
-                    self.selected = (self.selected + 1).min(len - 1);
+    pub fn process_action(&mut self, action: Action) {
+        match action {
+            Action::Quit => self.quit = true,
+            Action::NavigateHome => {
+                self.screen = Screen::Home;
+                self.client = None;
+            }
+            Action::NavigateFleet(name) => {
+                let name = if name.is_empty() { self.fleet.context_name.clone() } else { name };
+                if let Some(master) = self.config.masters.iter().find(|m| m.name == name) {
+                    self.client = Some(Client::new(&master.url, master.admin_token.clone()));
+                    self.fleet = FleetScreen::new(name.clone());
+                    self.config.current_context = name;
+                    self.config.save().ok();
+                    self.screen = Screen::Fleet;
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
+            Action::NavigateDetail(agent_id) => {
+                self.detail = DetailScreen::new(agent_id.clone());
+                // Set agent info from fleet data
+                self.detail.agent = self.fleet.agents.iter().find(|a| a.id == agent_id).cloned();
+                self.screen = Screen::Detail;
             }
-            KeyCode::Enter => {
-                if self.selected_agent().is_some() {
-                    self.screen = Screen::Detail;
-                    self.detail_tab = DetailTab::System;
-                    return Action::RefreshDetail;
-                }
+            Action::ShowModal(modal_action) => {
+                self.modal = Some(create_modal(modal_action));
             }
-            KeyCode::Char('/') => {
-                self.filtering = true;
-                self.filter.clear();
+            Action::CloseModal => {
+                self.modal = None;
             }
-            KeyCode::Char('u') => {
-                self.screen = Screen::Update;
-                return Action::RefreshRollout;
-            }
-            _ => {}
-        }
-        Action::None
-    }
-
-    fn handle_detail_key(&mut self, key: KeyEvent) -> Action {
-        match key.code {
-            KeyCode::Esc => {
-                self.screen = Screen::Fleet;
-            }
-            KeyCode::Tab | KeyCode::Char('2') => {
-                self.detail_tab = match self.detail_tab {
-                    DetailTab::System => DetailTab::Processes,
-                    DetailTab::Processes => DetailTab::System,
-                };
-            }
-            KeyCode::Char('1') => self.detail_tab = DetailTab::System,
-            KeyCode::Char('e') => {
-                self.screen = Screen::Exec;
-                self.exec_input.clear();
-                self.exec_output.clear();
-            }
-            _ => {}
-        }
-        Action::None
-    }
-
-    fn handle_update_key(&mut self, key: KeyEvent) -> Action {
-        if key.code == KeyCode::Esc {
-            self.screen = Screen::Fleet;
-        }
-        Action::None
-    }
-
-    fn handle_exec_key(&mut self, key: KeyEvent) -> Action {
-        match key.code {
-            KeyCode::Esc => self.screen = Screen::Detail,
-            KeyCode::Enter => {
-                if !self.exec_input.is_empty() && !self.exec_running {
-                    return Action::RunExec;
-                }
-            }
-            KeyCode::Backspace => {
-                self.exec_input.pop();
-            }
-            KeyCode::Char(c) => {
-                self.exec_input.push(c);
-            }
-            _ => {}
-        }
-        Action::None
-    }
-
-    fn handle_filter_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter => {
-                self.filtering = false;
-            }
-            KeyCode::Backspace => {
-                self.filter.pop();
-                self.selected = 0;
-            }
-            KeyCode::Char(c) => {
-                self.filter.push(c);
-                self.selected = 0;
-            }
-            _ => {}
-        }
-    }
-
-    pub async fn run_exec(&mut self) {
-        let Some(agent) = self.selected_agent().map(|a| a.id.clone()) else { return };
-        self.exec_running = true;
-        self.exec_output = "Running...".into();
-        match self.client.exec_command(&agent, &self.exec_input).await {
-            Ok(v) => {
-                let stdout = v.get("stdout").and_then(|s| s.as_str()).unwrap_or("");
-                let stderr = v.get("stderr").and_then(|s| s.as_str()).unwrap_or("");
-                let code = v.get("exit_code").and_then(|c| c.as_i64()).unwrap_or(-1);
-                let timed_out = v.get("timed_out").and_then(|t| t.as_bool()).unwrap_or(false);
-                let mut output = String::new();
-                if !stdout.is_empty() {
-                    output.push_str(stdout);
-                }
-                if !stderr.is_empty() {
-                    if !output.is_empty() {
-                        output.push('\n');
+            Action::DataLoaded(agents) => {
+                let mut new_list = Vec::with_capacity(agents.len());
+                for new_agent in agents {
+                    let mut agent = new_agent;
+                    // Preserve sparkline history from existing data
+                    if let Some(existing) = self.fleet.agents.iter().find(|a| a.id == agent.id) {
+                        agent.cpu_history = existing.cpu_history.clone();
                     }
-                    output.push_str(&format!("[stderr] {stderr}"));
+                    if let Some(cpu) = agent.cpu_pct {
+                        agent.cpu_history.push(cpu as u64);
+                        if agent.cpu_history.len() > 60 {
+                            agent.cpu_history.remove(0);
+                        }
+                    }
+                    new_list.push(agent);
                 }
-                if timed_out {
-                    output.push_str("\n[timed out]");
-                }
-                output.push_str(&format!("\n\n[exit code: {code}]"));
-                self.exec_output = output;
+                self.fleet.agents = new_list;
             }
-            Err(e) => self.exec_output = format!("Error: {e}"),
+            _ => {}
         }
-        self.exec_running = false;
+    }
+
+    pub fn render(&self, frame: &mut Frame) {
+        let area = frame.area();
+        match self.screen {
+            Screen::Home => self.home.render(frame, area, &self.config, &self.theme),
+            Screen::Fleet => self.fleet.render(frame, area, &self.theme),
+            Screen::Detail => self.detail.render(frame, area, &self.theme),
+        }
+
+        // Render modal on top
+        if let Some(ref modal) = self.modal {
+            render_modal(frame, modal, &self.theme);
+        }
+    }
+
+    pub async fn refresh_data(&mut self) {
+        let Some(ref client) = self.client else { return };
+        match self.screen {
+            Screen::Fleet => {
+                if let Ok(agents) = client.overview().await {
+                    self.process_action(Action::DataLoaded(agents));
+                }
+            }
+            Screen::Detail => {
+                self.detail.refresh(client).await;
+            }
+            _ => {}
+        }
     }
 }
 
-pub enum Action {
-    None,
-    RefreshDetail,
-    RefreshRollout,
-    RunExec,
+fn create_modal(action: ModalAction) -> Modal {
+    match action {
+        ModalAction::AddMaster => Modal {
+            title: "Adicionar Master".into(),
+            fields: vec![
+                ModalField { label: "Nome".into(), value: String::new(), placeholder: "production".into() },
+                ModalField { label: "URL".into(), value: String::new(), placeholder: "http://master:8080".into() },
+                ModalField { label: "Token (opcional)".into(), value: String::new(), placeholder: "".into() },
+            ],
+            focused: 0,
+            action,
+        },
+        ModalAction::ConfirmDelete(ref name) => {
+            Modal { title: format!("Remover '{name}'?"), fields: vec![], focused: 0, action }
+        }
+    }
+}
+
+fn handle_modal_key(modal: &mut Modal, key: KeyEvent) -> Action {
+    use crossterm::event::KeyCode;
+    match key.code {
+        KeyCode::Esc => return Action::CloseModal,
+        KeyCode::Tab => {
+            if !modal.fields.is_empty() {
+                modal.focused = (modal.focused + 1) % modal.fields.len();
+            }
+        }
+        KeyCode::BackTab => {
+            if !modal.fields.is_empty() {
+                modal.focused = modal.focused.checked_sub(1).unwrap_or(modal.fields.len() - 1);
+            }
+        }
+        KeyCode::Backspace => {
+            if let Some(field) = modal.fields.get_mut(modal.focused) {
+                field.value.pop();
+            }
+        }
+        KeyCode::Char(c) => {
+            if let Some(field) = modal.fields.get_mut(modal.focused) {
+                field.value.push(c);
+            }
+        }
+        KeyCode::Enter => {
+            if modal.fields.is_empty() {
+                // Confirm action (delete)
+                return Action::CloseModal; // caller handles via modal.action
+            }
+            // Check if we can submit
+            if modal.fields.iter().take(2).all(|f| !f.value.is_empty()) {
+                return Action::CloseModal; // caller extracts values
+            }
+            // Move to next field
+            if !modal.fields.is_empty() {
+                modal.focused = (modal.focused + 1) % modal.fields.len();
+            }
+        }
+        _ => {}
+    }
+    Action::None
+}
+
+fn render_modal(frame: &mut Frame, modal: &Modal, theme: &Theme) {
+    use crate::ui::modal::centered_rect;
+    use ratatui::{
+        style::Style,
+        text::{Line, Span},
+        widgets::{Block, Borders, Clear, Paragraph},
+    };
+
+    let area = centered_rect(50, 40, frame.area());
+    frame.render_widget(Clear, area);
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+
+    if modal.fields.is_empty() {
+        // Confirm dialog
+        lines.push(Line::from(Span::styled("  Enter para confirmar, Esc para cancelar", theme.normal())));
+    } else {
+        for (i, field) in modal.fields.iter().enumerate() {
+            let focused = i == modal.focused;
+            let label_style = if focused { theme.header() } else { theme.muted() };
+            lines.push(Line::from(Span::styled(format!("  {}:", field.label), label_style)));
+
+            let val_display = if field.value.is_empty() {
+                Span::styled(&field.placeholder, theme.muted())
+            } else {
+                Span::styled(&field.value, theme.normal())
+            };
+            let cursor = if focused { "█" } else { "" };
+            lines.push(Line::from(vec![Span::raw("  "), val_display, Span::styled(cursor, theme.normal())]));
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(Span::styled("  Tab: próximo campo │ Enter: confirmar │ Esc: cancelar", theme.muted())));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.accent))
+        .title(format!(" {} ", modal.title));
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
 }

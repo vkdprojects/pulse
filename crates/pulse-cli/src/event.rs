@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 pub enum Event {
     Key(KeyEvent),
     Tick,
-    DataRefresh,
+    Refresh,
 }
 
 pub struct EventHandler {
@@ -14,14 +14,14 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
-    pub fn new(tick_rate: Duration, refresh_rate: Duration) -> Self {
+    pub fn new(tick_ms: u64, refresh_secs: u64) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let tx_key = tx.clone();
         tokio::spawn(async move {
             let mut reader = EventStream::new();
-            loop {
-                if let Some(Ok(CtEvent::Key(key))) = reader.next().await
+            while let Some(Ok(evt)) = reader.next().await {
+                if let CtEvent::Key(key) = evt
                     && tx_key.send(Event::Key(key)).is_err()
                 {
                     break;
@@ -31,7 +31,7 @@ impl EventHandler {
 
         let tx_tick = tx.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tick_rate);
+            let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
             loop {
                 interval.tick().await;
                 if tx_tick.send(Event::Tick).is_err() {
@@ -41,10 +41,10 @@ impl EventHandler {
         });
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(refresh_rate);
+            let mut interval = tokio::time::interval(Duration::from_secs(refresh_secs));
             loop {
                 interval.tick().await;
-                if tx.send(Event::DataRefresh).is_err() {
+                if tx.send(Event::Refresh).is_err() {
                     break;
                 }
             }
