@@ -312,6 +312,7 @@ pub async fn collect_disk_io() -> Result<Vec<DiskIoMetrics>> {
 pub async fn collect_top_processes() -> Result<Vec<ProcessInfo>> {
     let mut procs: Vec<(u32, String, u64, u64)> = Vec::new();
     let mut entries = fs::read_dir("/proc").await?;
+    let mut stat_path = String::with_capacity(32);
 
     while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name();
@@ -320,8 +321,10 @@ pub async fn collect_top_processes() -> Result<Vec<ProcessInfo>> {
             Err(_) => continue,
         };
 
-        let stat_path = format!("/proc/{pid}/stat");
-        let Ok(stat) = fs::read_to_string(&stat_path).await else { continue };
+        stat_path.clear();
+        use std::fmt::Write;
+        let _ = write!(stat_path, "/proc/{pid}/stat");
+        let Ok(stat) = fs::read_to_string(stat_path.as_str()).await else { continue };
 
         // Parse: pid (comm) state ... field[13]=utime field[14]=stime field[23]=rss
         let comm_start = stat.find('(').unwrap_or(0);

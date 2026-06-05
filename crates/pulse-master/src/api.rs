@@ -1,3 +1,4 @@
+use crate::alerts::AlertEngine;
 use crate::auth::{AdminToken, require_admin};
 use crate::storage::Storage;
 use crate::updates::UpdateState;
@@ -14,14 +15,15 @@ pub struct AppState {
     pub storage: Storage,
     pub ca_pem: Option<Arc<String>>,
     pub update_state: UpdateState,
+    pub alerts: AlertEngine,
 }
 
 pub fn router(storage: Storage) -> Router<()> {
-    router_full(storage, None, None, UpdateState::new("data"))
+    router_full(storage, None, None, UpdateState::new("data"), AlertEngine::new())
 }
 
 pub fn router_with_ca(storage: Storage, ca_pem: Option<String>) -> Router<()> {
-    router_full(storage, ca_pem, None, UpdateState::new("data"))
+    router_full(storage, ca_pem, None, UpdateState::new("data"), AlertEngine::new())
 }
 
 pub fn router_full(
@@ -29,8 +31,9 @@ pub fn router_full(
     ca_pem: Option<String>,
     admin_token: Option<String>,
     update_state: UpdateState,
+    alerts: AlertEngine,
 ) -> Router<()> {
-    let state = AppState { storage, ca_pem: ca_pem.map(Arc::new), update_state };
+    let state = AppState { storage, ca_pem: ca_pem.map(Arc::new), update_state, alerts };
 
     // Admin-protected routes
     let admin_routes = Router::new()
@@ -109,7 +112,10 @@ async fn list_agents(State(state): State<AppState>) -> Json<Value> {
 
 async fn delete_agent(State(state): State<AppState>, Path(agent_id): Path<String>) -> Json<Value> {
     match state.storage.delete_agent(&agent_id).await {
-        Ok(()) => Json(json!({"deleted": true, "agent_id": agent_id})),
+        Ok(()) => {
+            state.alerts.evict_state(&agent_id).await;
+            Json(json!({"deleted": true, "agent_id": agent_id}))
+        }
         Err(e) => Json(json!({"error": e.to_string()})),
     }
 }

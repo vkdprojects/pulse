@@ -83,12 +83,16 @@ async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayloa
     // Confirm that post-update startup is healthy
     updater::confirm_update_healthy();
 
-    // Persist client certs if provisioned by master
+    // Persist client certs if provisioned by master (blocking I/O off async thread)
     if !reg.client_cert.is_empty() && !reg.client_key.is_empty() && !reg.ca_cert.is_empty() {
-        if let Err(e) = save_provisioned_certs(config, &reg.ca_cert, &reg.client_cert, &reg.client_key) {
-            warn!(error = %e, "failed to save client certificates");
-        } else {
-            info!("client certificate saved, will use mTLS on next connection");
+        let ca = reg.ca_cert.clone();
+        let cert = reg.client_cert.clone();
+        let key = reg.client_key.clone();
+        let result = tokio::task::spawn_blocking(move || save_provisioned_certs(&ca, &cert, &key)).await;
+        match result {
+            Ok(Ok(())) => info!("client certificate saved, will use mTLS on next connection"),
+            Ok(Err(e)) => warn!(error = %e, "failed to save client certificates"),
+            Err(e) => warn!(error = %e, "cert save task panicked"),
         }
     }
 
@@ -157,12 +161,12 @@ async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayloa
                 first = false;
                 match collect_snapshot(&agent_id).await {
                     Ok(payload) => {
-                        if metrics_tx.send(payload.clone()).await.is_err() {
-                            // Buffer for next reconnection
+                        if let Err(e) = metrics_tx.send(payload).await {
+                            // Recover payload from SendError — no clone needed
                             if buffer.len() >= 100 {
                                 buffer.pop_front();
                             }
-                            buffer.push_back(payload);
+                            buffer.push_back(e.0);
                             warn!(buffer_size = buffer.len(), "metrics channel closed, buffering");
                             break;
                         }
@@ -286,7 +290,7 @@ async fn fetch_and_verify_ca(grpc_endpoint: &str, auth_token: &str) -> Result<St
 }
 
 /// Save provisioned certs to disk and update config TOML with [tls] section
-fn save_provisioned_certs(_config: &Config, ca_cert: &[u8], client_cert: &[u8], client_key: &[u8]) -> Result<()> {
+fn save_provisioned_certs(ca_cert: &[u8], client_cert: &[u8], client_key: &[u8]) -> Result<()> {
     let cert_dir = std::path::PathBuf::from("/etc/pulse/certs");
     std::fs::create_dir_all(&cert_dir)?;
 

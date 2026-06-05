@@ -146,9 +146,9 @@ async fn main() -> Result<()> {
     }
 
     // Background: agent offline detection + retention
+    let alerts = pulse_master::alerts::AlertEngine::new().with_storage(storage.clone());
     {
-        let alerts = pulse_master::alerts::AlertEngine::new().with_storage(storage.clone());
-        tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(storage.clone(), alerts));
+        tokio::spawn(pulse_master::heartbeat::run_heartbeat_checker(storage.clone(), alerts.clone()));
         tokio::spawn(run_retention_worker(storage.clone()));
     }
 
@@ -182,7 +182,13 @@ async fn main() -> Result<()> {
     // REST API (HTTP on :8080)
     {
         let ca_pem = if tls_enabled { std::fs::read_to_string(format!("{tls_dir}/ca.pem")).ok() } else { None };
-        let app = pulse_master::api::router_full(storage.clone(), ca_pem, admin_token.clone(), update_state.clone());
+        let app = pulse_master::api::router_full(
+            storage.clone(),
+            ca_pem,
+            admin_token.clone(),
+            update_state.clone(),
+            alerts.clone(),
+        );
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
             info!("REST API on :8080");
