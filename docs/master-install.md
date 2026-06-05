@@ -1,63 +1,59 @@
-# Instalação do Master
+# Master Installation (Legacy)
 
-O `pulse-master` é o servidor central que recebe métricas, persiste dados, e envia comandos aos agents.
+> **Recommended:** Use the `pulse` TUI to install the master via SSH. See [CLI Installation](./cli-install.md).
+>
+> This page documents the manual `curl | sh` method for environments where the TUI is not available.
 
-**Binário estático ~5.4 MB. ~5 MB RAM. SQLite embedded. Zero dependências externas.**
+The `pulse-master` is the central server that receives metrics, persists data, manages TLS, and serves the REST API.
 
-## Instalação (1 comando)
+**Binary: 5.8 MB. ~5 MB RAM. SQLite embedded. Zero external dependencies.**
+
+## Installation
 
 ```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
+curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
+  GITHUB_TOKEN=ghp_xxx sudo sh -
 ```
 
-O script:
-1. Detecta arquitetura (x86_64 / aarch64)
-2. Baixa o binário do GitHub Releases
-3. Gera certificados TLS automaticamente (`/etc/pulse/`)
-4. Gera token de registro com CA pin (formato `sha256(ca.pem)::secret`)
-5. Cria e inicia o systemd service
-6. Mostra o one-liner para instalar agents
+The script:
 
-**Pronto.** O master está rodando com SQLite, TLS, e token — tudo automático.
+1. Detects architecture (x86_64 / aarch64)
+2. Downloads the binary from GitHub Releases
+3. Generates TLS certificates automatically
+4. Generates a register token with CA pin (format: `sha256(ca.pem)::secret`)
+5. Creates and starts the systemd service
+6. Prints the one-liner for installing agents
 
-## O que acontece no primeiro boot
+## First Boot Behavior
 
-- `PULSE_TLS_DIR` é criado automaticamente (default: `/etc/pulse/`)
-- CA key persiste em `ca-key.pem` para sobreviver restarts
-- Token é gerado e exibido no output da instalação
-- SQLite database é criada (zero config)
-- REST API inicia em `:8080`
-- gRPC inicia em `0.0.0.0:50051`
+- TLS directory created at `/etc/pulse/` (configurable via `PULSE_TLS_DIR`)
+- CA key persists in `ca-key.pem` (survives restarts, never regenerated if present)
+- Register token generated and saved to `/var/lib/pulse/register-token`
+- Admin token generated and saved to `/var/lib/pulse/admin-token`
+- SQLite database created (zero config)
+- REST API starts on `:8080`
+- gRPC starts on `0.0.0.0:50051`
 
-## Verificar
+## Verify
 
 ```bash
-# Status do serviço
 systemctl status pulse-master
 
-# Health check
 curl http://localhost:8080/health
 # {"status":"ok"}
 
-# Logs
 journalctl -u pulse-master -f
 ```
 
-## Versão específica
+## Specific Version
 
 ```bash
-VERSION=v0.2.0 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
+curl -sfL .../install-pulse.sh | VERSION=v0.4.0 GITHUB_TOKEN=ghp_xxx sudo sh -
 ```
 
-## Repo privado
+## Update
 
-```bash
-GITHUB_TOKEN=ghp_xxx curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
-```
-
-## Atualização
-
-Re-rode o mesmo comando. O script é idempotente — para o serviço, substitui o binário, reinicia.
+Re-run the same command. The script is idempotent: stops the service, replaces the binary, restarts.
 
 ## Firewall
 
@@ -66,19 +62,29 @@ sudo ufw allow 50051/tcp comment "Pulse gRPC"
 sudo ufw allow 8080/tcp comment "Pulse REST API"
 ```
 
-## Escalar com TimescaleDB (opcional)
+## Optional: PostgreSQL Backend
 
-Por default o master usa **SQLite embedded**. Para escalar para 100+ agents ou integrar Grafana:
+By default the master uses SQLite (embedded, zero config). To scale beyond 100+ agents or integrate with Grafana, switch to PostgreSQL:
 
 ```bash
-systemctl stop pulse-master
-
-# Adicionar DATABASE_URL:
-systemctl edit pulse-master
-# [Service]
-# Environment=DATABASE_URL=postgres://pulse:senha@localhost:5432/pulse
-
-systemctl start pulse-master
+sudo systemctl edit pulse-master
 ```
 
-O master detecta `postgres://` na URL e ativa: hypertables, compression, continuous aggregates, retention policy.
+```ini
+[Service]
+Environment=DATABASE_URL=postgres://pulse:password@localhost:5432/pulse
+```
+
+```bash
+sudo systemctl restart pulse-master
+```
+
+The master detects `postgres://` in the URL and activates hypertables, compression, continuous aggregates, and retention policies (requires TimescaleDB extension).
+
+## Data Directories
+
+| Path | Contents |
+|------|----------|
+| `/etc/pulse/` | TLS certificates (CA, server cert/key) |
+| `/var/lib/pulse/` | SQLite database, register-token, admin-token, update binaries |
+| `/usr/local/bin/pulse-master` | Binary |

@@ -1,78 +1,105 @@
-# Segurança & TLS
+# Security and TLS
 
-## Visão geral
+## Overview
 
-Toda comunicação entre agent e master usa TLS. Após o primeiro registro, passa a usar **mutual TLS** (mTLS) com client certs emitidos automaticamente.
+All communication between agents and master is encrypted. After the first registration, connections use mutual TLS (mTLS) with automatically provisioned client certificates.
 
-## Fluxo de segurança
+## Three Token Types
 
-### Primeiro boot (bootstrap)
+| Token | Purpose | Location |
+|-------|---------|----------|
+| `PULSE_REGISTER_TOKEN` | Agent registration with CA pin | `/var/lib/pulse/register-token` |
+| `PULSE_ADMIN_TOKEN` | REST API write operations | `/var/lib/pulse/admin-token` |
+| GitHub token | CLI binary downloads from private repo | `~/.config/pulse/config.toml` |
 
-1. Master gera CA + server cert no primeiro boot
-2. Master gera token no formato `sha256(ca.pem)::secret`
-3. Agent recebe o token via install script
-4. Agent busca CA cert via `GET master:8080/api/ca`
-5. Agent valida `sha256(ca_cert) == ca_pin` do token → **previne MITM**
-6. Agent conecta gRPC com server TLS (CA validado)
-7. Agent faz Register com o `secret` → master emite client cert
-8. Agent salva certs localmente
+These are independent. Never confuse them.
 
-### Boots subsequentes (mTLS)
+## Token Format (Register Token)
 
-- Agent usa client cert salvo → conexão mTLS completa
-- Sem necessidade de re-buscar CA ou token
-- Master valida client cert a cada conexão
+```
+{sha256_hex(ca.pem)}::{random_64char_hex}
+```
 
-## CA Pin (anti-MITM)
+- First half: CA fingerprint (anti-MITM pin)
+- Second half: secret for authentication during Register RPC
 
-O token contém o SHA-256 do CA cert. Isso garante que mesmo se um atacante interceptar a conexão HTTP para `/api/ca`, o agent detecta que o CA não bate com o pin e **rejeita a conexão**.
+## TLS Bootstrap Flow
 
-## Auth Token
+```
+1. Master generates CA (ca.pem + ca-key.pem) on first boot
+2. Master generates register token and saves to /var/lib/pulse/register-token
+3. Token is provided to agents (via install script or TUI provisioner)
+4. Agent parses token → extracts ca_pin + secret
+5. Agent fetches CA via GET http://master:8080/api/ca
+6. Agent validates sha256(received_ca) == ca_pin → confirms server identity
+7. Agent connects gRPC with TLS (trusting validated CA) → calls Register(secret)
+8. Master validates secret → issues client certificate → returns cert in response
+9. Agent saves certs to /etc/pulse/certs/ → updates agent.toml with [tls] section
+10. Subsequent boots: agent reads [tls] section → mTLS directly (no re-registration)
+```
 
-O `PULSE_REGISTER_TOKEN` impede que qualquer IP registre agents falsos. Sem token configurado no master = aceita qualquer registro (modo desenvolvimento).
+## Security Properties
 
-O token é gerado automaticamente na instalação do master.
+| Property | Guarantee |
+|----------|-----------|
+| Anti-MITM | CA pin in token — attacker cannot forge the CA |
+| Agent authentication | Secret in token — only token holders can register |
+| Wire encryption | TLS on all gRPC traffic |
+| Post-bootstrap identity | Client cert issued and signed by master's CA |
+| CA persistence | CA key saved to disk — survives restarts |
+| Admin auth | Bearer token on write API endpoints |
 
-## Admin Token (REST API)
+## Important Invariants
 
-O `PULSE_ADMIN_TOKEN` protege operações destrutivas da REST API:
-- `DELETE /api/agents/:id` — remover agent
-- `POST /api/agents/:id/exec` — executar comandos
-- `POST /api/updates/upload` — upload de binários
-- `POST /api/updates/rollout` — configurar rollout
+- The server does NOT require client cert on TLS handshake (allows bootstrap)
+- Authentication during Register is via token in the RPC payload, not via cert
+- Client certs are issued ONLY by the Register RPC and signed by master's CA
+- `CaBundle::load_or_create()` loads existing CA key (never regenerates if present)
+- Token without `::` is treated as legacy/simple token (backward compatible)
 
-Gerado automaticamente no primeiro boot em `/var/lib/pulse/admin-token`.
+## Admin Token
 
-Sem admin token = todas as operações permitidas (modo desenvolvimento).
+The `PULSE_ADMIN_TOKEN` protects destructive REST API operations:
 
-## Server vs Client cert
+- `DELETE /api/agents/:id` — remove agent
+- `PUT /api/agents/:id/name` — rename agent
+- `POST /api/agents/:id/exec` — execute commands
+- `POST /api/agents/:id/file` — file operations
+- `GET /api/register-token` — view register token
+- `POST /api/updates/upload` — upload binaries
+- `POST /api/updates/rollout` — configure rollout
 
-- **Server NÃO exige client cert** na conexão inicial — necessário para permitir o bootstrap (Register)
-- **Após Register**, o agent tem client cert e todas as conexões subsequentes são mTLS
+Auto-generated on first boot. Stored in `/var/lib/pulse/admin-token`.
+
+Without admin token configured: all operations are permitted (development mode).
 
 ## Systemd Hardening
 
-O service roda com:
+Both master and agent services run with restricted privileges:
+
 ```ini
-NoNewPrivileges=yes      # Não pode escalar privilégios
-ProtectSystem=strict     # Filesystem read-only (exceto paths necessários)
-ProtectHome=yes          # /home inacessível
-PrivateTmp=yes           # /tmp isolado
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/pulse /etc/pulse
 ```
 
-## Persistência da CA
-
-A chave privada da CA (`ca-key.pem`) persiste em disco dentro de `PULSE_TLS_DIR`. Isso permite:
-- Reiniciar o master sem invalidar certs de agents existentes
-- Emitir novos client certs para novos agents
-
-## Auditoria
+## Audit
 
 ```bash
-# Verificar vulnerabilidades nas dependências
+# Check dependency vulnerabilities
 cargo audit
 
-# Verificar unsafe code
+# Check unsafe code
 grep -r "unsafe" crates/ --include="*.rs"
-# Resultado: 1 uso (statvfs syscall, necessário para disk stats)
+# Result: 1 usage (statvfs syscall — necessary for disk stats, documented)
 ```
+
+## What Is Never Logged
+
+- CA private key (`ca-key.pem`)
+- Client private keys
+- Register token content
+- Admin token content
+- File contents from remote commands

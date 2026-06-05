@@ -1,69 +1,75 @@
-# Instalação do Agent
+# Agent Installation (Legacy)
 
-O `pulse-agent` é o daemon que roda em cada servidor monitorado. Binário de 3.0 MB, 2-5 MB RAM.
+> **Recommended:** Use the `pulse` TUI to provision agents via SSH. See [CLI Installation](./cli-install.md).
+>
+> This page documents the manual `curl | sh` method for environments where the TUI is not available.
 
-## Instalação (1 comando)
+The `pulse-agent` is the monitoring daemon that runs on each server. It collects system metrics and streams them to the master over gRPC with mutual TLS.
+
+**Binary: 3.1 MB. 2-5 MB RAM. Zero dependencies.**
+
+## Installation
 
 ```bash
 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=token-mostrado-no-install sudo sh -
+  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=token-from-master GITHUB_TOKEN=ghp_xxx sudo sh -
 ```
 
-> O token é exibido no output da instalação do master. Formato: `sha256(ca.pem)::secret`
+> The token is displayed in the master installation output. Format: `sha256(ca.pem)::secret`
 
-O script:
-1. Detecta arquitetura (x86_64 / aarch64)
-2. Baixa o binário do GitHub Releases
-3. Cria config em `/etc/pulse/agent.toml`
-4. Cria e inicia o systemd service
+The script:
 
-**Pronto.** O agent conecta, valida TLS, registra, e começa a enviar métricas.
+1. Detects architecture (x86_64 / aarch64)
+2. Downloads the binary from GitHub Releases
+3. Creates config at `/etc/pulse/agent.toml`
+4. Creates and starts the systemd service
 
-## TLS Bootstrap (automático, zero intervenção)
+## TLS Bootstrap (Automatic)
 
-O agent faz tudo sozinho:
+The agent handles the entire TLS bootstrap without manual intervention:
 
-1. Parseia token → extrai `ca_pin` e `secret`
-2. Busca CA cert via HTTP GET `master:8080/api/ca`
-3. Valida `sha256(ca_cert)` contra `ca_pin` do token (anti-MITM)
-4. Conecta gRPC usando o CA validado
-5. Faz Register com o `secret` → recebe client cert do master
-6. Salva certs em `/etc/pulse/certs/` + atualiza `agent.toml` com seção `[tls]`
-7. Próximo boot: usa mTLS direto (sem re-buscar CA)
+1. Parses token to extract `ca_pin` and `secret`
+2. Fetches CA cert via `GET master:8080/api/ca`
+3. Validates `sha256(ca_cert) == ca_pin` (anti-MITM)
+4. Connects gRPC using the validated CA
+5. Calls `Register(secret)` — receives client cert from master
+6. Saves certs to `/etc/pulse/certs/` and updates `agent.toml` with `[tls]` section
+7. On subsequent boots: uses mTLS directly (no re-registration)
 
-**NÃO precisa copiar certs manualmente. NÃO precisa instalar nada antes.**
+No manual cert copying. No pre-requisites.
 
-## Verificar
+## Verify
 
 ```bash
-# Status
 systemctl status pulse-agent
 
-# Logs (deve mostrar "registered" ou "connected")
+# Should show "registered" or "connected"
 journalctl -u pulse-agent -f
 
-# No master, confirmar:
+# Confirm on master
 curl http://MASTER_IP:8080/api/agents
 ```
 
-## Múltiplos agents
+## Multiple Agents
 
-Rode o mesmo comando em cada servidor. Cada agent recebe um ID único no registro.
+Run the same command on each server. Each agent receives a unique ID during registration.
 
-## Versão específica
+## Specific Version
 
 ```bash
-VERSION=v0.2.0 curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=xxx sudo sh -
+curl -sfL .../install-pulse.sh | \
+  VERSION=v0.4.0 PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=xxx GITHUB_TOKEN=ghp_xxx sudo sh -
 ```
 
-## Atualização
+## Update
 
-Re-rode o comando de instalação. O script para, substitui, reinicia.
+Agents self-update automatically via the master's binary server. See [Auto-Update](./auto-update.md).
 
-## Config gerada
+For manual update, re-run the install command. The script is idempotent.
 
-O script gera `/etc/pulse/agent.toml`:
+## Generated Config
+
+The install script creates `/etc/pulse/agent.toml`:
 
 ```toml
 master_endpoint = "https://MASTER_IP:50051"
@@ -71,7 +77,7 @@ metrics_interval_ms = 10000
 auth_token = "sha256pin::secret"
 ```
 
-Após o primeiro registro, o agent adiciona automaticamente:
+After first registration, the agent adds:
 
 ```toml
 [tls]
@@ -80,3 +86,12 @@ client_cert = "/etc/pulse/certs/client.pem"
 client_key = "/etc/pulse/certs/client-key.pem"
 domain_name = "master"
 ```
+
+## Data Directories
+
+| Path | Contents |
+|------|----------|
+| `/etc/pulse/agent.toml` | Configuration |
+| `/etc/pulse/certs/` | TLS certificates (auto-provisioned) |
+| `/var/lib/pulse/` | Update marker, previous binary backup |
+| `/usr/local/bin/pulse-agent` | Binary |

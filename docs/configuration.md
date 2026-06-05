@@ -1,32 +1,34 @@
-# Configuração
+# Configuration
 
-## Master (variáveis de ambiente)
+## Master (Environment Variables)
 
-O master é configurado exclusivamente por variáveis de ambiente. Na instalação via script, os defaults já funcionam — configure apenas o que precisar ajustar.
+The master is configured exclusively via environment variables. All defaults work out of the box — configure only what you need to change.
 
-| Variável | Default | Descrição |
-|---|---|---|
-| `PULSE_LISTEN` | `[::]:50051` | Endereço de escuta gRPC |
-| `PULSE_TLS_DIR` | `/etc/pulse` | Diretório para certs (auto-criado no boot) |
-| `DATABASE_URL` | _(SQLite)_ | Se `postgres://...`, usa TimescaleDB |
-| `PULSE_REGISTER_TOKEN` | _(auto-gerado)_ | Token para autenticar agents (formato `ca_pin::secret`) |
-| `PULSE_RETENTION_DAYS` | `30` | Dias para manter métricas antes de deletar |
-| `RUST_LOG` | `info` | Nível de log (trace, debug, info, warn, error) |
+### Core
 
-### Alertas
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PULSE_LISTEN` | `[::]:50051` | gRPC listen address |
+| `PULSE_TLS_DIR` | `/etc/pulse` | Directory for TLS certificates (auto-created) |
+| `DATABASE_URL` | _(SQLite)_ | If `postgres://...`, uses PostgreSQL/TimescaleDB |
+| `PULSE_REGISTER_TOKEN` | _(auto-generated)_ | Token for agent registration (format: `ca_pin::secret`) |
+| `PULSE_ADMIN_TOKEN` | _(auto-generated)_ | Token for admin REST API operations |
+| `PULSE_RETENTION_DAYS` | `30` | Days to keep metrics before deletion |
+| `RUST_LOG` | `info` | Log level (trace, debug, info, warn, error) |
 
-| Variável | Default | Descrição |
-|---|---|---|
-| `PULSE_ALERT_WEBHOOK` | _(desabilitado)_ | URL do webhook (Telegram/Slack/Discord/genérico) |
-| `PULSE_ALERT_TELEGRAM_CHAT_ID` | — | Chat ID para Telegram |
-| `PULSE_ALERT_CPU_PCT` | `90` | Threshold CPU (%) |
-| `PULSE_ALERT_MEM_PCT` | `90` | Threshold memória (%) |
-| `PULSE_ALERT_BW_MBPS` | `100` | Threshold bandwidth (MB/s) |
+### Alerts
 
-### Modificar configuração
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PULSE_ALERT_WEBHOOK` | _(disabled)_ | Webhook URL (Telegram/Slack/Discord/generic) |
+| `PULSE_ALERT_TELEGRAM_CHAT_ID` | — | Chat ID for Telegram webhooks |
+| `PULSE_ALERT_CPU_PCT` | `90` | CPU threshold (%) |
+| `PULSE_ALERT_MEM_PCT` | `90` | Memory threshold (%) |
+| `PULSE_ALERT_BW_MBPS` | `100` | Bandwidth threshold (MB/s) |
+
+### Modifying Configuration
 
 ```bash
-# Via systemd override (recomendado)
 sudo systemctl edit pulse-master
 ```
 
@@ -41,24 +43,32 @@ Environment=PULSE_ALERT_TELEGRAM_CHAT_ID=123456
 sudo systemctl restart pulse-master
 ```
 
+### Data Paths
+
+| Path | Contents |
+|------|----------|
+| `/etc/pulse/` | CA cert, CA key, server cert, server key |
+| `/var/lib/pulse/pulse.db` | SQLite database (default backend) |
+| `/var/lib/pulse/register-token` | Register token for agents |
+| `/var/lib/pulse/admin-token` | Admin token for REST API |
+| `/var/lib/pulse/updates/` | Uploaded binaries for auto-update |
+
+---
+
 ## Agent (`/etc/pulse/agent.toml`)
 
-Gerado automaticamente pelo install script. Edite apenas se precisar ajustar algo.
+Generated automatically by the install script or TUI provisioner. Edit only if manual adjustment is needed.
 
 ```toml
-# Endpoint do master
 master_endpoint = "https://master.example.com:50051"
-
-# Intervalo de coleta em milissegundos
 metrics_interval_ms = 10000
-
-# Labels para agrupar/filtrar agents
-labels = ["prod", "datacenter-sp"]
-
-# Token de autenticação (formato ca_pin::secret)
 auth_token = "sha256pin::secret"
+labels = ["prod", "datacenter-sp"]
+```
 
-# Preenchido automaticamente após primeiro registro:
+After first registration, the agent appends automatically:
+
+```toml
 [tls]
 ca_cert = "/etc/pulse/certs/ca.pem"
 client_cert = "/etc/pulse/certs/client.pem"
@@ -66,15 +76,54 @@ client_key = "/etc/pulse/certs/client-key.pem"
 domain_name = "master"
 ```
 
-### Campos
+### Fields
 
-| Campo | Default | Descrição |
-|---|---|---|
-| `master_endpoint` | `http://[::1]:50051` | URL do master |
-| `metrics_interval_ms` | `10000` | Intervalo de coleta (ms) |
-| `labels` | `[]` | Tags para agrupar agents |
-| `auth_token` | `""` | Token com CA pin para bootstrap |
-| `tls.ca_cert` | — | CA cert (preenchido após registro) |
-| `tls.client_cert` | — | Client cert (preenchido após registro) |
-| `tls.client_key` | — | Client key (preenchido após registro) |
-| `tls.domain_name` | `localhost` | Domain para validação TLS |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `master_endpoint` | `http://[::1]:50051` | Master gRPC URL |
+| `metrics_interval_ms` | `10000` | Collection interval in milliseconds |
+| `auth_token` | `""` | Token with CA pin for bootstrap |
+| `labels` | `[]` | Tags for grouping/filtering agents |
+| `tls.ca_cert` | — | CA certificate path (auto-populated) |
+| `tls.client_cert` | — | Client certificate path (auto-populated) |
+| `tls.client_key` | — | Client private key path (auto-populated) |
+| `tls.domain_name` | `localhost` | Domain for TLS validation |
+
+---
+
+## CLI (`~/.config/pulse/config.toml`)
+
+Created by the first-run setup wizard. Supports multiple masters.
+
+```toml
+github_token = "ghp_..."
+github_repo = "gcnsolucoes/vixpi-pulse"
+current_context = "production"
+
+[[masters]]
+name = "production"
+url = "http://master-prod:8080"
+admin_token = "admin-token-here"
+
+[[masters]]
+name = "homelab"
+url = "http://192.168.68.66:8080"
+admin_token = "another-token"
+```
+
+### Fields
+
+| Field | Description |
+|-------|-------------|
+| `github_token` | GitHub PAT for downloading binaries (repo scope) |
+| `github_repo` | Repository in `owner/repo` format |
+| `current_context` | Name of the active master |
+| `masters[].name` | Display name for the master |
+| `masters[].url` | REST API URL (http://host:8080) |
+| `masters[].admin_token` | Admin token for write operations |
+
+---
+
+## Version
+
+Binary version comes from git tags via `build.rs` using `git describe --tags`. Never edit `Cargo.toml` version for releases — tag the commit instead.

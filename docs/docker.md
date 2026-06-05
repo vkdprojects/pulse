@@ -1,8 +1,8 @@
-# Docker & Grafana (opcional)
+# Docker (Optional)
 
-> **Docker NÃO é requisito para usar o Vixpi Pulse.** A instalação padrão é via `curl | sh` com SQLite embedded.
+> Docker is NOT required to use Vixpi Pulse. The standard installation uses a single binary with SQLite embedded.
 >
-> Docker Compose é útil para: demo rápida, desenvolvimento local com Grafana, ou ambiente com TimescaleDB.
+> Docker Compose is useful for: quick demos, local development with Grafana, or environments that want TimescaleDB.
 
 ## Demo Mode (Docker Compose + Grafana)
 
@@ -10,57 +10,58 @@
 docker compose up --build
 ```
 
-Sobe: TimescaleDB + Master + 3 Agents + Grafana
+This starts: TimescaleDB + Master + 3 Agents + Grafana.
 
-| Serviço | Porta | Descrição |
-|---|---|---|
+| Service | Port | Description |
+|---------|------|-------------|
 | `db` | 5432 | TimescaleDB (PostgreSQL 17) |
-| `master` | 50051 | pulse-master com TLS |
-| `agent-1/2/3` | — | 3 agents Linux simulados |
-| `grafana` | 3000 | Dashboard pré-configurado (admin/pulse) |
+| `master` | 50051 | pulse-master with TLS |
+| `agent-1/2/3` | — | 3 simulated Linux agents |
+| `grafana` | 3000 | Pre-configured dashboard (admin/pulse) |
 
-## Teste E2E automatizado
+## E2E Automated Test
 
 ```bash
 ./tests/e2e-docker.sh
 ```
 
-Valida 7 checks:
-1. 3 agents registrados no DB
-2. Métricas persistidas
-3. CPU data presente
-4. Memory data presente
-5. TLS funcional
-6. Agents únicos
-7. Hypertables ativas
+Validates 7 checks:
 
-## Dev local
+1. 3 agents registered in DB
+2. Metrics persisted
+3. CPU data present
+4. Memory data present
+5. TLS functional
+6. Agents unique
+7. Hypertables active
+
+## Local Development
 
 ```bash
-# 1. Sobe apenas o banco (para usar TimescaleDB localmente)
+# Start only the database (TimescaleDB)
 just dev-up
 
-# 2. Roda master local (terminal 1)
+# Run master locally (terminal 1)
 just dev-master
 
-# 3. Roda agent local (terminal 2)
+# Run agent locally (terminal 2)
 just dev-agent
 
-# 4. Para tudo
+# Stop everything
 just dev-down
 ```
 
-## Consultas úteis no DB (quando usando TimescaleDB)
+## Useful DB Queries (TimescaleDB)
 
 ```sql
--- Agents registrados
+-- Registered agents
 SELECT id, hostname, os, arch, status, last_seen_at FROM agents;
 
--- CPU últimas 10 leituras
+-- CPU last 10 readings
 SELECT time, agent_id, cpu_total_bp/100.0 as cpu_pct
 FROM metrics ORDER BY time DESC LIMIT 10;
 
--- Memória por agent
+-- Memory per agent
 SELECT time, agent_id, mem_used/1048576 as used_mb, mem_total/1048576 as total_mb
 FROM metrics WHERE agent_id = 'agent-0001' ORDER BY time DESC LIMIT 5;
 
@@ -73,7 +74,7 @@ SELECT time, agent_id, container_name, mem_usage/1048576 as mem_mb
 FROM container_metrics ORDER BY time DESC LIMIT 10;
 ```
 
-## Rebuild apenas um serviço
+## Rebuild a Single Service
 
 ```bash
 docker compose build master
