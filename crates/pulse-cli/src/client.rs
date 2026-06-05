@@ -73,6 +73,13 @@ pub struct DiskInfo {
     pub used_pct: Option<f64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct NetInterface {
+    pub name: String,
+    pub rx_bytes: Option<i64>,
+    pub tx_bytes: Option<i64>,
+}
+
 impl Client {
     pub fn new(base_url: &str, token: Option<String>) -> Self {
         Self {
@@ -112,6 +119,12 @@ impl Client {
         let v = self.get(&format!("/api/agents/{id}/disks")).await?;
         let disks = v.get("disks").cloned().unwrap_or_default();
         Ok(serde_json::from_value(disks).unwrap_or_default())
+    }
+
+    pub async fn agent_network(&self, id: &str) -> Result<Vec<NetInterface>> {
+        let v = self.get(&format!("/api/agents/{id}/network")).await?;
+        let ifaces = v.get("interfaces").cloned().unwrap_or_default();
+        Ok(serde_json::from_value(ifaces).unwrap_or_default())
     }
 
     pub async fn health_check(&self) -> bool {
