@@ -89,7 +89,9 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
 
                 // Handle modal submission
                 if matches!(action, action::Action::CloseModal) {
-                    if let Some(ref modal) = app.modal {
+                    if let Some(ref modal) = app.modal
+                        && modal.confirmed
+                    {
                         match &modal.action {
                             action::ModalAction::AddMaster => {
                                 if modal.fields.len() >= 2

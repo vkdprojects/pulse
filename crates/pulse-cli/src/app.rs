@@ -44,6 +44,7 @@ pub struct Modal {
     pub fields: Vec<ModalField>,
     pub focused: usize,
     pub action: ModalAction,
+    pub confirmed: bool,
 }
 
 pub struct ModalField {
@@ -213,9 +214,10 @@ fn create_modal(action: ModalAction) -> Modal {
             ],
             focused: 0,
             action,
+            confirmed: false,
         },
         ModalAction::ConfirmDelete(ref name) => {
-            Modal { title: format!("Remover '{name}'?"), fields: vec![], focused: 0, action }
+            Modal { title: format!("Remover '{name}'?"), fields: vec![], focused: 0, action, confirmed: false }
         }
     }
 }
@@ -250,6 +252,7 @@ fn handle_modal_key(modal: &mut Modal, key: KeyEvent) -> Action {
         }
         KeyCode::Enter => {
             if modal.fields.is_empty() || modal.fields.iter().take(2).all(|f| !f.value.is_empty()) {
+                modal.confirmed = true;
                 Action::CloseModal
             } else {
                 if !modal.fields.is_empty() {
