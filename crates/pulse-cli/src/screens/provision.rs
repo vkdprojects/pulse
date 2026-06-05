@@ -59,8 +59,8 @@ impl ProvisionScreen {
             Field { label: "Auth", value: "key".into(), placeholder: "password | key", is_password: false },
             Field {
                 label: "Secret",
-                value: crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default(),
-                placeholder: "~/.ssh/id_ed25519",
+                value: String::new(),
+                placeholder: "vazio = ssh-agent | texto = passphrase | path = key file",
                 is_password: false,
             },
         ];
@@ -160,8 +160,24 @@ impl ProvisionScreen {
         let auth_mode = self.fields[3].value.clone();
         let secret = self.fields[4].value.clone();
 
-        let auth =
-            if auth_mode == "key" { installer::SshAuth::Key(secret) } else { installer::SshAuth::Password(secret) };
+        // Auth resolution:
+        // key + empty secret → try ssh-agent, then key file without passphrase
+        // key + secret looks like path → use that key file
+        // key + secret is text (no /) → treat as passphrase for default key
+        // password → password auth
+        let auth = if auth_mode == "key" {
+            if secret.is_empty() {
+                let default_key = crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default();
+                installer::SshAuth::Key(default_key)
+            } else if secret.contains('/') || secret.starts_with('~') {
+                installer::SshAuth::Key(secret)
+            } else {
+                let default_key = crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default();
+                installer::SshAuth::KeyWithPassphrase(default_key, secret)
+            }
+        } else {
+            installer::SshAuth::Password(secret)
+        };
 
         let (tx, rx) = mpsc::channel(64);
         self.event_rx = Some(rx);

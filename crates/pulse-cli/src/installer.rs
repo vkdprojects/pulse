@@ -41,7 +41,8 @@ pub struct InstallOpts {
 #[derive(Clone)]
 pub enum SshAuth {
     Password(String),
-    Key(String), // path to private key file
+    Key(String),                       // path to private key (unencrypted or agent-loaded)
+    KeyWithPassphrase(String, String), // path, passphrase
 }
 
 /// Install pulse-master on a remote server via SSH.
@@ -209,6 +210,7 @@ async fn connect_ssh(opts: &InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Res
 
     match &opts.auth {
         SshAuth::Password(password) => {
+            tx.send(InstallEvent::Progress("  Auth: password".into())).await.ok();
             let auth = session.authenticate_password(&opts.user, password).await?;
             if !auth {
                 bail!("Autenticação por senha falhou");
@@ -216,7 +218,26 @@ async fn connect_ssh(opts: &InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Res
         }
         SshAuth::Key(key_path) => {
             tx.send(InstallEvent::Progress(format!("  Key: {key_path}"))).await.ok();
-            let key = russh::keys::load_secret_key(key_path, None)?;
+            match russh::keys::load_secret_key(key_path, None) {
+                Ok(key) => {
+                    let auth = session.authenticate_publickey(&opts.user, Arc::new(key)).await?;
+                    if !auth {
+                        bail!("Key rejeitada pelo servidor. Verifique se está autorizada em ~/.ssh/authorized_keys.");
+                    }
+                }
+                Err(_) => {
+                    bail!(
+                        "Key encriptada com passphrase.\n\
+                         Opções:\n\
+                         • Informe a passphrase no campo Secret e tente novamente\n\
+                         • Ou rode 'ssh-add' no terminal antes de usar o Pulse"
+                    );
+                }
+            }
+        }
+        SshAuth::KeyWithPassphrase(key_path, passphrase) => {
+            tx.send(InstallEvent::Progress(format!("  Key: {key_path} (com passphrase)")).into()).await.ok();
+            let key = russh::keys::load_secret_key(key_path, Some(passphrase))?;
             let auth = session.authenticate_publickey(&opts.user, Arc::new(key)).await?;
             if !auth {
                 bail!("Autenticação por chave falhou");
