@@ -1,6 +1,6 @@
 use crate::action::Action;
 use crate::installer::{self, InstallEvent};
-use crate::ui::{BORDER, theme::Theme};
+use crate::ui::{self, BORDER, theme::Theme};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -29,6 +29,10 @@ pub struct ProvisionScreen {
     github_repo: String,
     master_url: String,
     register_token: String,
+    // Host picker
+    pub ssh_hosts: Vec<crate::ssh_config::SshHost>,
+    pub picking_host: bool,
+    pub host_selected: usize,
 }
 
 pub struct Field {
@@ -46,12 +50,19 @@ impl ProvisionScreen {
         master_url: String,
         register_token: String,
     ) -> Self {
+        let ssh_hosts = crate::ssh_config::parse_ssh_config();
+        let picking_host = !ssh_hosts.is_empty();
         let fields = vec![
             Field { label: "Host", value: String::new(), placeholder: "192.168.1.100", is_password: false },
             Field { label: "Port", value: "22".into(), placeholder: "22", is_password: false },
             Field { label: "User", value: "root".into(), placeholder: "root", is_password: false },
-            Field { label: "Auth", value: "password".into(), placeholder: "password | key", is_password: false },
-            Field { label: "Secret", value: String::new(), placeholder: "password or key path", is_password: true },
+            Field { label: "Auth", value: "key".into(), placeholder: "password | key", is_password: false },
+            Field {
+                label: "Secret",
+                value: crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default(),
+                placeholder: "~/.ssh/id_ed25519",
+                is_password: false,
+            },
         ];
         Self {
             target,
@@ -66,6 +77,9 @@ impl ProvisionScreen {
             github_repo,
             master_url,
             register_token,
+            ssh_hosts,
+            picking_host,
+            host_selected: 0,
         }
     }
 
@@ -91,9 +105,32 @@ impl ProvisionScreen {
             return Action::None;
         }
         if self.running {
-            return Action::None; // can't interact while installing
+            return Action::None;
         }
 
+        // Host picker mode
+        if self.picking_host {
+            let total = self.ssh_hosts.len() + 1; // +1 for "manual" option
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.host_selected = (self.host_selected + 1).min(total - 1);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.host_selected = self.host_selected.saturating_sub(1);
+                }
+                KeyCode::Enter => {
+                    if self.host_selected < self.ssh_hosts.len() {
+                        self.fill_from_ssh_host(&self.ssh_hosts[self.host_selected].clone());
+                    }
+                    self.picking_host = false;
+                }
+                KeyCode::Esc => return Action::NavigateHome,
+                _ => {}
+            }
+            return Action::None;
+        }
+
+        // Form mode
         match key.code {
             KeyCode::Esc => return Action::NavigateHome,
             KeyCode::Tab => self.focused = (self.focused + 1) % self.fields.len(),
@@ -180,6 +217,11 @@ impl ProvisionScreen {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        // Host picker mode
+        if self.picking_host {
+            self.render_host_picker(frame, area, theme);
+            return;
+        }
         let explanation = match self.target {
             ProvisionTarget::Master => vec![
                 "  Baixa o binário do GitHub, faz upload via SFTP e configura systemd.",
@@ -280,5 +322,58 @@ impl ProvisionScreen {
         let footer = Paragraph::new(Span::styled(footer_text, theme.muted()))
             .block(Block::default().borders(Borders::TOP).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(footer, chunks[3]);
+    }
+
+    fn render_host_picker(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let chunks = Layout::vertical([Constraint::Length(5), Constraint::Min(5), Constraint::Length(2)]).split(area);
+
+        // Header
+        let title = match self.target {
+            ProvisionTarget::Master => "Selecione o servidor para instalar o Master",
+            ProvisionTarget::Agent => "Selecione o servidor para instalar o Agent",
+        };
+        let header = Paragraph::new(vec![
+            Line::from(Span::styled(format!(" ◉ pulse {title}"), theme.title())),
+            Line::from(""),
+            Line::from(Span::styled("  Hosts encontrados no seu ~/.ssh/config:", theme.muted())),
+        ])
+        .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
+        frame.render_widget(header, chunks[0]);
+
+        // Host list
+        let mut lines = Vec::new();
+        lines.push(Line::from(""));
+        for (i, host) in self.ssh_hosts.iter().enumerate() {
+            let selected = i == self.host_selected;
+            let style = if selected { theme.selected() } else { theme.normal() };
+            let indicator = if selected { "›" } else { " " };
+            let key_info = host.identity_file.as_deref().unwrap_or("password");
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {indicator} "), theme.key_style()),
+                Span::styled(format!("{:<20}", host.name), style),
+                Span::styled(
+                    format!("{}@{}:{}", host.user, host.hostname, host.port),
+                    if selected { style } else { theme.muted() },
+                ),
+                Span::styled(format!("  ({})", key_info.split('/').last().unwrap_or(key_info)), theme.dim()),
+            ]));
+        }
+        // Manual option
+        let manual_selected = self.host_selected == self.ssh_hosts.len();
+        let manual_style = if manual_selected { theme.selected() } else { theme.muted() };
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(if manual_selected { "  › " } else { "    " }, theme.key_style()),
+            Span::styled("Configurar manualmente...", manual_style),
+        ]));
+
+        let list = Paragraph::new(lines);
+        frame.render_widget(list, chunks[1]);
+
+        // Footer
+        let footer = ui::footer_line(&[("j/k", "navegar"), ("Enter", "selecionar"), ("Esc", "cancelar")], theme);
+        let fw = Paragraph::new(footer)
+            .block(Block::default().borders(Borders::TOP).border_type(BORDER).border_style(theme.border()));
+        frame.render_widget(fw, chunks[2]);
     }
 }
