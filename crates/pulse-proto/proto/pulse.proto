@@ -130,6 +130,14 @@ message DiskHealth {
 message MetricsAck {
   bool ok = 1;
   uint32 next_interval_ms = 2;
+  UpdateSignal update = 3;
+}
+
+message UpdateSignal {
+  string version = 1;
+  string sha256 = 2;
+  uint64 size_bytes = 3;
+  bool urgent = 4;
 }
 
 // --- Commands ---

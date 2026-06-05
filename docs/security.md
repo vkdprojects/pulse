@@ -33,6 +33,18 @@ O `PULSE_REGISTER_TOKEN` impede que qualquer IP registre agents falsos. Sem toke
 
 O token é gerado automaticamente na instalação do master.
 
+## Admin Token (REST API)
+
+O `PULSE_ADMIN_TOKEN` protege operações destrutivas da REST API:
+- `DELETE /api/agents/:id` — remover agent
+- `POST /api/agents/:id/exec` — executar comandos
+- `POST /api/updates/upload` — upload de binários
+- `POST /api/updates/rollout` — configurar rollout
+
+Gerado automaticamente no primeiro boot em `/var/lib/pulse/admin-token`.
+
+Sem admin token = todas as operações permitidas (modo desenvolvimento).
+
 ## Server vs Client cert
 
 - **Server NÃO exige client cert** na conexão inicial — necessário para permitir o bootstrap (Register)

@@ -138,10 +138,30 @@ async fn main() -> Result<()> {
         tokio::spawn(run_retention_worker(storage.clone()));
     }
 
+    // Auto-generate admin token for REST API protection
+    let admin_token = if let Ok(t) = std::env::var("PULSE_ADMIN_TOKEN") {
+        Some(t)
+    } else {
+        let token_path = format!("{data_dir}/admin-token");
+        if std::path::Path::new(&token_path).exists() {
+            let t = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        } else {
+            let secret: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            std::fs::write(&token_path, &secret).ok();
+            info!(token = %secret, "admin token generated (for REST API)");
+            Some(secret)
+        }
+    };
+
+    // Update state (binary distribution)
+    let update_state = pulse_master::updates::UpdateState::new(&data_dir);
+    service = service.with_update_state(update_state.clone());
+
     // REST API (HTTP on :8080)
     {
         let ca_pem = if tls_enabled { std::fs::read_to_string(format!("{tls_dir}/ca.pem")).ok() } else { None };
-        let app = pulse_master::api::router_with_ca(storage.clone(), ca_pem);
+        let app = pulse_master::api::router_full(storage.clone(), ca_pem, admin_token.clone(), update_state.clone());
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
             info!("REST API on :8080");

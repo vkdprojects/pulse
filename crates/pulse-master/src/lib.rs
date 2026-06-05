@@ -1,9 +1,11 @@
 pub mod alerts;
 pub mod api;
+pub mod auth;
 pub mod ca;
 pub mod heartbeat;
 pub mod service;
 pub mod storage;
+pub mod updates;
 
 use anyhow::Result;
 use ca::CaBundle;

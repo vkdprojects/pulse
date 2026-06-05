@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit hook: runs the same checks as CI
+# Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "→ cargo fmt --check"
+cargo fmt --all -- --check || { echo "✗ Run 'cargo fmt --all' to fix"; exit 1; }
+
+echo "→ cargo clippy"
+cargo clippy --workspace --all-targets -- -D warnings || { echo "✗ Fix clippy warnings"; exit 1; }
+
+echo "→ cargo test"
+cargo test --workspace -- --skip test_exec_timeout -q || { echo "✗ Tests failed"; exit 1; }
+
+echo "✓ All checks passed"

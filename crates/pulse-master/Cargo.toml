@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 pulse-proto = { path = "../pulse-proto" }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "net", "time", "process", "io-util"] }
 tonic = { workspace = true, features = ["transport", "tls-ring"] }
 tonic-prost = { workspace = true }
 tokio-stream = { workspace = true }
@@ -14,7 +14,7 @@ rustls-pki-types = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 anyhow = { workspace = true }
