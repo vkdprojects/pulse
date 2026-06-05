@@ -138,16 +138,12 @@ impl App {
                 self.screen = Screen::Update;
             }
             Action::NavigateProvision(target) => {
-                let master_url = self.config.current_master().map(|m| m.url.clone()).unwrap_or_default();
-                let register_token = if matches!(target, ProvisionTarget::Agent) {
-                    // For agent, we need the register token — try to fetch from master
-                    String::new() // User will need to have it from master install output
-                } else {
-                    String::new()
-                };
+                let master = self.config.current_master().cloned();
+                let master_url = master.as_ref().map(|m| m.url.clone()).unwrap_or_default();
+                let admin_token = master.as_ref().and_then(|m| m.admin_token.clone()).unwrap_or_default();
                 let github_token = self.config.github_token.clone().unwrap_or_default();
                 let github_repo = self.config.repo().to_string();
-                self.provision = ProvisionScreen::new(target, github_token, github_repo, master_url, register_token);
+                self.provision = ProvisionScreen::new(target, github_token, github_repo, master_url, admin_token);
                 self.screen = Screen::Provision;
             }
             Action::ShowModal(modal_action) => {

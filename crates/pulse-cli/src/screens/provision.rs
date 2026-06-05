@@ -186,11 +186,12 @@ impl ProvisionScreen {
             github_token: self.github_token.clone(),
             github_repo: self.github_repo.clone(),
             master_url: if self.target == ProvisionTarget::Agent { Some(self.master_url.clone()) } else { None },
-            register_token: if self.target == ProvisionTarget::Agent {
-                Some(self.register_token.clone())
+            master_admin_token: if self.target == ProvisionTarget::Agent {
+                Some(self.register_token.clone()) // register_token field doubles as admin_token holder from app
             } else {
                 None
             },
+            register_token: None, // Will be auto-fetched from master
         };
 
         let target = self.target;

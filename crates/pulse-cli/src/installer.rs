@@ -23,6 +23,7 @@ pub struct InstallOpts {
     pub github_token: String,
     pub github_repo: String,
     pub master_url: Option<String>,
+    pub master_admin_token: Option<String>,
     pub register_token: Option<String>,
 }
 
@@ -142,7 +143,11 @@ async fn do_install_agent(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) ->
         let client = reqwest::Client::new();
         // Try with admin token first
         let url = format!("{master_url}/api/register-token");
-        if let Ok(resp) = client.get(&url).header("Authorization", format!("Bearer {}", opts.github_token)).send().await
+        if let Ok(resp) = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", opts.master_admin_token.as_deref().unwrap_or("")))
+            .send()
+            .await
         {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
                 if let Some(t) = body.get("register_token").and_then(|v| v.as_str()) {
