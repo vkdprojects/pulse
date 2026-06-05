@@ -10,6 +10,7 @@ pub enum Action {
     NavigateDetail(String),
     NavigateExec(String, String), // agent_id, hostname
     NavigateUpdate,
+    UpdateMaster(String), // host IP to pre-fill
     NavigateProvision(ProvisionTarget),
     DataLoaded(Vec<AgentOverview>),
     RefreshData,

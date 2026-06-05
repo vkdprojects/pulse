@@ -137,6 +137,26 @@ impl App {
             Action::NavigateUpdate => {
                 self.screen = Screen::Update;
             }
+            Action::UpdateMaster(host) => {
+                let github_token = self.config.github_token.clone().unwrap_or_default();
+                let github_repo = self.config.repo().to_string();
+                self.provision = ProvisionScreen::new(
+                    ProvisionTarget::Master,
+                    github_token,
+                    github_repo,
+                    String::new(),
+                    String::new(),
+                );
+                // Pre-fill host and skip picker
+                self.provision.picking_host = false;
+                self.provision.fields[0].value = host.clone();
+                // Try to find SSH config for this host
+                if let Some(ssh_host) = self.provision.ssh_hosts.iter().find(|h| h.hostname == host) {
+                    let h = ssh_host.clone();
+                    self.provision.fill_from_ssh_host(&h);
+                }
+                self.screen = Screen::Provision;
+            }
             Action::NavigateProvision(target) => {
                 let master = self.config.current_master().cloned();
                 let master_url = master.as_ref().map(|m| m.url.clone()).unwrap_or_default();

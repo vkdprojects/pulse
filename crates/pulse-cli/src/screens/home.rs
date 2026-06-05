@@ -36,9 +36,19 @@ impl HomeScreen {
             KeyCode::Char('n') => return Action::ShowModal(crate::action::ModalAction::AddMaster),
             KeyCode::Char('s') => return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Master),
             KeyCode::Char('u') => {
-                // Update = same as install (idempotent - downloads new binary, restarts)
+                // Update master - extract host from URL and go straight to SSH form
                 if self.selected < config.masters.len() {
-                    return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Master);
+                    let master = &config.masters[self.selected];
+                    // Extract host from URL: http://192.168.68.66:8080 → 192.168.68.66
+                    let host = master
+                        .url
+                        .replace("http://", "")
+                        .replace("https://", "")
+                        .split(':')
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+                    return Action::UpdateMaster(host);
                 }
             }
             KeyCode::Char('r') => {
