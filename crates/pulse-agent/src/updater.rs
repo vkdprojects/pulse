@@ -44,7 +44,14 @@ pub async fn check_and_apply(master_endpoint: &str, current_version: &str) -> Re
 
     // Verify SHA256
     let hash = digest::digest(&digest::SHA256, &binary);
-    let computed: String = hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+    let computed: String = {
+        use std::fmt::Write;
+        let mut s = String::with_capacity(hash.as_ref().len() * 2);
+        for b in hash.as_ref() {
+            write!(s, "{:02x}", b).unwrap();
+        }
+        s
+    };
     if computed != expected_sha {
         bail!("sha256 mismatch: expected {expected_sha}, got {computed}");
     }

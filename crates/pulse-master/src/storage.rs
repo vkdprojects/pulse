@@ -151,6 +151,7 @@ impl Storage {
 
         match self {
             Storage::Postgres(pool) => {
+                let mut tx = pool.begin().await?;
                 sqlx::query(
                     "INSERT INTO metrics (time, agent_id, cpu_total_bp, cpu_cores_bp, load_1m, load_5m, load_15m,
                         mem_total, mem_used, mem_available, swap_total, swap_used, cgroup_limit, cgroup_usage,
@@ -175,7 +176,7 @@ impl Storage {
                 .bind(procs_total)
                 .bind(procs_running)
                 .bind(payload.battery_pct as i32)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
 
                 for net in &payload.net {
@@ -192,7 +193,7 @@ impl Storage {
                     .bind(net.tx_packets_sec as i64)
                     .bind(net.rx_errors as i64)
                     .bind(net.tx_errors as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -212,7 +213,7 @@ impl Storage {
                     .bind(ctr.mem_limit as i64)
                     .bind(ctr.net_rx_bytes as i64)
                     .bind(ctr.net_tx_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -226,7 +227,7 @@ impl Storage {
                     .bind(&disk.mount_point)
                     .bind(disk.total_bytes as i64)
                     .bind(disk.used_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -242,7 +243,7 @@ impl Storage {
                     .bind(dio.write_bytes as i64)
                     .bind(dio.read_ops as i64)
                     .bind(dio.write_ops as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -258,7 +259,7 @@ impl Storage {
                     .bind(dh.temp_c as i32)
                     .bind(dh.power_on_hours as i32)
                     .bind(dh.healthy)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -271,7 +272,7 @@ impl Storage {
                     .bind(&payload.agent_id)
                     .bind(&temp.zone)
                     .bind(temp.temp_mc)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -289,7 +290,7 @@ impl Storage {
                     .bind(gpu.mem_total as i64)
                     .bind(gpu.temp_c)
                     .bind(gpu.power_watts as i32)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -304,7 +305,7 @@ impl Storage {
                     .bind(&proc.name)
                     .bind(proc.cpu_bp as i32)
                     .bind(proc.rss_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -319,7 +320,7 @@ impl Storage {
                     .bind(&sess.remote_ip)
                     .bind(&sess.tty)
                     .bind(sess.pid as i32)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -334,16 +335,18 @@ impl Storage {
                     .bind(&conn.service)
                     .bind(conn.active_count as i32)
                     .bind(&conn.remote_ips)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
                 sqlx::query("UPDATE agents SET last_seen_at = NOW(), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
+                tx.commit().await?;
             }
             Storage::Sqlite(pool) => {
+                let mut tx = pool.begin().await?;
                 let time_str = time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
                 let cpu_cores_json = cpu_cores_vec.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
 
@@ -371,7 +374,7 @@ impl Storage {
                 .bind(procs_total)
                 .bind(procs_running)
                 .bind(payload.battery_pct as i32)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await?;
 
                 for net in &payload.net {
@@ -388,7 +391,7 @@ impl Storage {
                     .bind(net.tx_packets_sec as i64)
                     .bind(net.rx_errors as i64)
                     .bind(net.tx_errors as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -408,7 +411,7 @@ impl Storage {
                     .bind(ctr.mem_limit as i64)
                     .bind(ctr.net_rx_bytes as i64)
                     .bind(ctr.net_tx_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -422,7 +425,7 @@ impl Storage {
                     .bind(&disk.mount_point)
                     .bind(disk.total_bytes as i64)
                     .bind(disk.used_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -438,7 +441,7 @@ impl Storage {
                     .bind(dio.write_bytes as i64)
                     .bind(dio.read_ops as i64)
                     .bind(dio.write_ops as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -454,7 +457,7 @@ impl Storage {
                     .bind(dh.temp_c as i32)
                     .bind(dh.power_on_hours as i32)
                     .bind(dh.healthy as i32)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -467,7 +470,7 @@ impl Storage {
                     .bind(&payload.agent_id)
                     .bind(&temp.zone)
                     .bind(temp.temp_mc)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -485,7 +488,7 @@ impl Storage {
                     .bind(gpu.mem_total as i64)
                     .bind(gpu.temp_c)
                     .bind(gpu.power_watts as i32)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -500,7 +503,7 @@ impl Storage {
                     .bind(&proc.name)
                     .bind(proc.cpu_bp as i32)
                     .bind(proc.rss_bytes as i64)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -515,7 +518,7 @@ impl Storage {
                     .bind(&sess.remote_ip)
                     .bind(&sess.tty)
                     .bind(sess.pid as i32)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
@@ -531,14 +534,15 @@ impl Storage {
                     .bind(&conn.service)
                     .bind(conn.active_count as i32)
                     .bind(&ips_json)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 }
 
                 sqlx::query("UPDATE agents SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), status = 'online' WHERE id = $1")
                     .bind(&payload.agent_id)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
+                tx.commit().await?;
             }
         }
         Ok(())
@@ -749,67 +753,62 @@ impl Storage {
     pub async fn get_overview_data(&self) -> Result<Vec<serde_json::Value>> {
         match self {
             Storage::Postgres(pool) => {
-                let rows: Vec<(String, String, String, String)> = sqlx::query_as(
-                    "SELECT id, hostname, COALESCE(status,'online'), COALESCE(agent_version,'') FROM agents ORDER BY registered_at DESC",
-                )
-                .fetch_all(pool)
-                .await?;
-                let mut agents = Vec::with_capacity(rows.len());
-                for (id, hostname, status, version) in &rows {
-                    let metric: Option<(Option<i32>, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
-                        "SELECT cpu_total_bp, mem_used, mem_total, uptime_secs FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
+                let rows: Vec<(String, String, String, String, Option<i32>, Option<i64>, Option<i64>, Option<i64>)> =
+                    sqlx::query_as(
+                        "SELECT a.id, a.hostname, COALESCE(a.status,'online'), COALESCE(a.agent_version,''),
+                            m.cpu_total_bp, m.mem_used, m.mem_total, m.uptime_secs
+                     FROM agents a
+                     LEFT JOIN LATERAL (
+                         SELECT cpu_total_bp, mem_used, mem_total, uptime_secs
+                         FROM metrics WHERE agent_id = a.id ORDER BY time DESC LIMIT 1
+                     ) m ON true
+                     ORDER BY a.registered_at DESC",
                     )
-                    .bind(id)
-                    .fetch_optional(pool)
+                    .fetch_all(pool)
                     .await?;
-                    let (cpu_pct, mem_pct, uptime) = match metric {
-                        Some((cpu, mem_used, mem_total, up)) => (
-                            cpu.map(|v| v as f64 / 100.0),
-                            match (mem_used, mem_total) {
-                                (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
-                                _ => None,
-                            },
-                            up,
-                        ),
-                        None => (None, None, None),
-                    };
-                    agents.push(serde_json::json!({
-                        "id": id, "hostname": hostname, "status": status, "version": version,
-                        "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
-                    }));
-                }
+                let agents = rows
+                    .iter()
+                    .map(|(id, hostname, status, version, cpu, mem_used, mem_total, uptime)| {
+                        let cpu_pct = cpu.map(|v| v as f64 / 100.0);
+                        let mem_pct = match (mem_used, mem_total) {
+                            (Some(u), Some(t)) if *t > 0 => Some(*u as f64 * 100.0 / *t as f64),
+                            _ => None,
+                        };
+                        serde_json::json!({
+                            "id": id, "hostname": hostname, "status": status, "version": version,
+                            "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
+                        })
+                    })
+                    .collect();
                 Ok(agents)
             }
             Storage::Sqlite(pool) => {
-                let rows: Vec<(String, String, String, String)> = sqlx::query_as(
-                    "SELECT id, hostname, COALESCE(status,'online'), COALESCE(agent_version,'') FROM agents ORDER BY registered_at DESC",
-                )
-                .fetch_all(pool)
-                .await?;
-                let mut agents = Vec::with_capacity(rows.len());
-                for (id, hostname, status, version) in &rows {
-                    let metric: Option<(Option<i32>, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
-                        "SELECT cpu_total_bp, mem_used, mem_total, uptime_secs FROM metrics WHERE agent_id = $1 ORDER BY time DESC LIMIT 1",
+                let rows: Vec<(String, String, String, String, Option<i32>, Option<i64>, Option<i64>, Option<i64>)> =
+                    sqlx::query_as(
+                        "SELECT a.id, a.hostname, COALESCE(a.status,'online'), COALESCE(a.agent_version,''),
+                            m.cpu_total_bp, m.mem_used, m.mem_total, m.uptime_secs
+                     FROM agents a
+                     LEFT JOIN metrics m ON m.agent_id = a.id
+                       AND m.time = (SELECT MAX(time) FROM metrics WHERE agent_id = a.id)
+                     GROUP BY a.id
+                     ORDER BY a.registered_at DESC",
                     )
-                    .bind(id)
-                    .fetch_optional(pool)
+                    .fetch_all(pool)
                     .await?;
-                    let (cpu_pct, mem_pct, uptime) = match metric {
-                        Some((cpu, mem_used, mem_total, up)) => (
-                            cpu.map(|v| v as f64 / 100.0),
-                            match (mem_used, mem_total) {
-                                (Some(u), Some(t)) if t > 0 => Some(u as f64 * 100.0 / t as f64),
-                                _ => None,
-                            },
-                            up,
-                        ),
-                        None => (None, None, None),
-                    };
-                    agents.push(serde_json::json!({
-                        "id": id, "hostname": hostname, "status": status, "version": version,
-                        "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
-                    }));
-                }
+                let agents = rows
+                    .iter()
+                    .map(|(id, hostname, status, version, cpu, mem_used, mem_total, uptime)| {
+                        let cpu_pct = cpu.map(|v| v as f64 / 100.0);
+                        let mem_pct = match (mem_used, mem_total) {
+                            (Some(u), Some(t)) if *t > 0 => Some(*u as f64 * 100.0 / *t as f64),
+                            _ => None,
+                        };
+                        serde_json::json!({
+                            "id": id, "hostname": hostname, "status": status, "version": version,
+                            "cpu_pct": cpu_pct, "mem_pct": mem_pct, "uptime_secs": uptime,
+                        })
+                    })
+                    .collect();
                 Ok(agents)
             }
         }

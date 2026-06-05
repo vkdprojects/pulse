@@ -138,22 +138,15 @@ impl PulseAgent for PulseService {
                 String::new()
             };
             if us.should_signal(&last_agent_id, &agent_version, &config) {
-                config.target_version.as_ref().map(|v| {
-                    let arch = "x86_64"; // fallback; agent will use its own arch
-                    let path = us.binary_path(v, arch);
-                    let sha = path
-                        .exists()
-                        .then(|| {
-                            std::fs::read(&path).ok().map(|data| {
-                                let hash = ring::digest::digest(&ring::digest::SHA256, &data);
-                                hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>()
-                            })
-                        })
-                        .flatten()
-                        .unwrap_or_default();
-                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    UpdateSignal { version: v.clone(), sha256: sha, size_bytes: size, urgent: config.urgent }
-                })
+                let version = config.target_version.clone().unwrap_or_default();
+                let urgent = config.urgent;
+                drop(config);
+                let arch = "x86_64"; // fallback; agent will use its own arch
+                if let Some((sha, size)) = us.get_binary_sha(&version, arch).await {
+                    Some(UpdateSignal { version, sha256: sha, size_bytes: size, urgent })
+                } else {
+                    None
+                }
             } else {
                 None
             }

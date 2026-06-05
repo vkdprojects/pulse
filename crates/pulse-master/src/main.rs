@@ -79,11 +79,25 @@ async fn main() -> Result<()> {
             let t = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
             if t.is_empty() { None } else { Some(t) }
         } else {
-            let secret: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            let secret: String = {
+                use std::fmt::Write;
+                let mut s = String::with_capacity(64);
+                for _ in 0..32 {
+                    write!(s, "{:02x}", rand_byte()).unwrap();
+                }
+                s
+            };
             let t = if tls_enabled {
                 let ca_pem = std::fs::read_to_string(format!("{tls_dir}/ca.pem")).unwrap_or_default();
                 let hash = ring::digest::digest(&ring::digest::SHA256, ca_pem.as_bytes());
-                let ca_pin: String = hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                let ca_pin: String = {
+                    use std::fmt::Write;
+                    let mut s = String::with_capacity(64);
+                    for b in hash.as_ref() {
+                        write!(s, "{:02x}", b).unwrap();
+                    }
+                    s
+                };
                 format!("{ca_pin}::{secret}")
             } else {
                 secret
@@ -147,7 +161,14 @@ async fn main() -> Result<()> {
             let t = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
             if t.is_empty() { None } else { Some(t) }
         } else {
-            let secret: String = (0..32).map(|_| format!("{:02x}", rand_byte())).collect();
+            let secret: String = {
+                use std::fmt::Write;
+                let mut s = String::with_capacity(64);
+                for _ in 0..32 {
+                    write!(s, "{:02x}", rand_byte()).unwrap();
+                }
+                s
+            };
             std::fs::write(&token_path, &secret).ok();
             info!(token = %secret, "admin token generated (for REST API)");
             Some(secret)

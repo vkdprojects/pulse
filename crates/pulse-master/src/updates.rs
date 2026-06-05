@@ -18,6 +18,7 @@ use crate::api::AppState;
 pub struct UpdateState {
     pub releases_dir: PathBuf,
     pub config: Arc<RwLock<RolloutConfig>>,
+    pub sha_cache: Arc<RwLock<std::collections::HashMap<String, (String, u64)>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +44,11 @@ impl UpdateState {
         } else {
             RolloutConfig::default()
         };
-        Self { releases_dir, config: Arc::new(RwLock::new(config)) }
+        Self {
+            releases_dir,
+            config: Arc::new(RwLock::new(config)),
+            sha_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        }
     }
 
     pub fn persist_config(&self, cfg: &RolloutConfig) {
@@ -71,6 +76,28 @@ impl UpdateState {
         let bucket = hash.as_ref()[0] as u8 % 100;
         bucket < config.rollout_pct
     }
+
+    /// Get SHA256 + size from cache (or compute and cache on miss)
+    pub async fn get_binary_sha(&self, version: &str, arch: &str) -> Option<(String, u64)> {
+        let key = format!("{version}-{arch}");
+        {
+            let cache = self.sha_cache.read().await;
+            if let Some(v) = cache.get(&key) {
+                return Some(v.clone());
+            }
+        }
+        let path = self.binary_path(version, arch);
+        let data = tokio::fs::read(&path).await.ok()?;
+        let size = data.len() as u64;
+        let hash = digest::digest(&digest::SHA256, &data);
+        use std::fmt::Write;
+        let mut sha = String::with_capacity(64);
+        for b in hash.as_ref() {
+            write!(sha, "{:02x}", b).unwrap();
+        }
+        self.sha_cache.write().await.insert(key, (sha.clone(), size));
+        Some((sha, size))
+    }
 }
 
 // ─── Endpoints ────────────────────────────────────────────────────
@@ -90,12 +117,12 @@ pub async fn check_update(State(state): State<AppState>, Query(q): Query<CheckQu
     if q.version == *target {
         return Json(json!({"available": false}));
     }
-    let path = update_state.binary_path(target, &q.arch);
-    if !path.exists() {
+    let target = target.clone();
+    drop(config);
+    let Some((sha, size)) = update_state.get_binary_sha(&target, &q.arch).await else {
         return Json(json!({"available": false, "reason": "binary not found for arch"}));
-    }
-    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let sha = compute_sha256(&path).unwrap_or_default();
+    };
+    let config = update_state.config.read().await;
     Json(json!({
         "available": true,
         "version": target,
@@ -152,10 +179,17 @@ pub async fn upload_binary(State(state): State<AppState>, mut multipart: Multipa
     let path = state.update_state.binary_path(&version, &arch);
     match tokio::fs::write(&path, &data).await {
         Ok(()) => {
-            let sha = compute_sha256(&path).unwrap_or_default();
-            info!(version, arch, size = data.len(), sha = %sha, "binary uploaded");
-            Json(json!({"ok": true, "version": version, "arch": arch, "sha256": sha, "size": data.len()}))
-                .into_response()
+            let hash = digest::digest(&digest::SHA256, &data);
+            use std::fmt::Write;
+            let mut sha = String::with_capacity(64);
+            for b in hash.as_ref() {
+                write!(sha, "{:02x}", b).unwrap();
+            }
+            let size = data.len();
+            let key = format!("{version}-{arch}");
+            state.update_state.sha_cache.write().await.insert(key, (sha.clone(), size as u64));
+            info!(version, arch, size, sha = %sha, "binary uploaded");
+            Json(json!({"ok": true, "version": version, "arch": arch, "sha256": sha, "size": size})).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -189,10 +223,16 @@ pub async fn get_rollout(State(state): State<AppState>) -> Json<Value> {
     Json(json!({"config": *config}))
 }
 
+#[cfg(test)]
 fn compute_sha256(path: &Path) -> Option<String> {
     let data = std::fs::read(path).ok()?;
     let hash = digest::digest(&digest::SHA256, &data);
-    Some(hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect())
+    use std::fmt::Write;
+    let mut s = String::with_capacity(64);
+    for b in hash.as_ref() {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    Some(s)
 }
 
 /// Sanitize path component: only allow [a-zA-Z0-9._-]

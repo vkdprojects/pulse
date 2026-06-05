@@ -268,7 +268,14 @@ async fn fetch_and_verify_ca(grpc_endpoint: &str, auth_token: &str) -> Result<St
     // Validate CA pin if token contains one (format: {ca_pin}::{secret})
     if let Some((ca_pin, _secret)) = auth_token.split_once("::") {
         let hash = ring::digest::digest(&ring::digest::SHA256, body.as_bytes());
-        let computed: String = hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+        let computed: String = {
+            use std::fmt::Write;
+            let mut s = String::with_capacity(64);
+            for b in hash.as_ref() {
+                write!(s, "{:02x}", b).unwrap();
+            }
+            s
+        };
         if computed != ca_pin {
             anyhow::bail!("CA pin mismatch — possible MITM (expected {ca_pin}, got {computed})");
         }

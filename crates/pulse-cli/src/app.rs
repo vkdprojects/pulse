@@ -180,9 +180,9 @@ impl App {
                         agent.cpu_history = existing.cpu_history.clone();
                     }
                     if let Some(cpu) = agent.cpu_pct {
-                        agent.cpu_history.push(cpu as u64);
+                        agent.cpu_history.push_back(cpu as u64);
                         if agent.cpu_history.len() > 60 {
-                            agent.cpu_history.remove(0);
+                            agent.cpu_history.pop_front();
                         }
                     }
                     new_list.push(agent);
@@ -398,7 +398,7 @@ mod tests {
                 mem_pct: Some(67.0),
                 uptime_secs: Some(86400),
                 version: "0.3.0".into(),
-                cpu_history: vec![10, 20, 30],
+                cpu_history: std::collections::VecDeque::from(vec![10, 20, 30]),
             },
             AgentOverview {
                 id: "agent-002".into(),
@@ -408,7 +408,7 @@ mod tests {
                 mem_pct: None,
                 uptime_secs: None,
                 version: "0.2.0".into(),
-                cpu_history: vec![],
+                cpu_history: std::collections::VecDeque::new(),
             },
         ];
         app
@@ -606,7 +606,7 @@ mod tests {
             mem_pct: Some(70.0),
             uptime_secs: Some(90000),
             version: "0.4.0".into(),
-            cpu_history: vec![],
+            cpu_history: std::collections::VecDeque::new(),
         }];
 
         app.process_action(Action::DataLoaded(new_agents));
@@ -629,13 +629,13 @@ mod tests {
             mem_pct: Some(70.0),
             uptime_secs: Some(90000),
             version: "0.3.0".into(),
-            cpu_history: vec![], // API doesn't send history
+            cpu_history: std::collections::VecDeque::new(), // API doesn't send history
         }];
 
         app.process_action(Action::DataLoaded(new_agents));
 
         // History should be preserved + new point appended
-        assert_eq!(app.fleet.agents[0].cpu_history, vec![10, 20, 30, 50]);
+        assert_eq!(app.fleet.agents[0].cpu_history, std::collections::VecDeque::from(vec![10, 20, 30, 50]));
     }
 
     // ─── Fleet Navigation Tests ───────────────────────────────────

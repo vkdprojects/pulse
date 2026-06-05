@@ -30,7 +30,7 @@ pub fn router_full(
     admin_token: Option<String>,
     update_state: UpdateState,
 ) -> Router<()> {
-    let state = AppState { storage, ca_pem: ca_pem.map(Arc::new), update_state: update_state.clone() };
+    let state = AppState { storage, ca_pem: ca_pem.map(Arc::new), update_state };
 
     // Admin-protected routes
     let admin_routes = Router::new()
@@ -215,7 +215,13 @@ async fn rename_agent(
 
 async fn get_register_token() -> Json<Value> {
     let paths = ["/var/lib/pulse/register-token", "data/register-token"];
-    let token = paths.iter().find_map(|p| std::fs::read_to_string(p).ok()).unwrap_or_default().trim().to_string();
+    let mut token = String::new();
+    for p in paths {
+        if let Ok(t) = tokio::fs::read_to_string(p).await {
+            token = t.trim().to_string();
+            break;
+        }
+    }
     Json(json!({"register_token": token}))
 }
 

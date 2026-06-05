@@ -20,7 +20,7 @@ pub struct AgentOverview {
     pub version: String,
     // Local sparkline history (not from API)
     #[serde(skip)]
-    pub cpu_history: Vec<u64>,
+    pub cpu_history: std::collections::VecDeque<u64>,
 }
 
 impl AgentOverview {
@@ -189,7 +189,7 @@ mod tests {
             mem_pct: None,
             uptime_secs: None,
             version: "0.1.0".into(),
-            cpu_history: vec![],
+            cpu_history: std::collections::VecDeque::new(),
         };
         let spark = agent.cpu_history_spark();
         // With cpu_pct=50% and no history, shows repeated mid-level chars
@@ -206,7 +206,7 @@ mod tests {
             mem_pct: None,
             uptime_secs: None,
             version: "".into(),
-            cpu_history: vec![10, 30, 50, 70, 90],
+            cpu_history: std::collections::VecDeque::from(vec![10, 30, 50, 70, 90]),
         };
         let spark = agent.cpu_history_spark();
         assert!(!spark.is_empty());
@@ -223,7 +223,7 @@ mod tests {
             mem_pct: None,
             uptime_secs: None,
             version: "".into(),
-            cpu_history: vec![],
+            cpu_history: std::collections::VecDeque::new(),
         };
         let spark = agent.cpu_history_spark();
         assert_eq!(spark, "──────────");

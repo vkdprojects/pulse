@@ -160,7 +160,8 @@ impl FleetScreen {
                     let cpu_str = a.cpu_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
                     let mem_str = a.mem_pct.map(|v| format!("{:>3.0}%", v)).unwrap_or_else(|| "  —".into());
                     let uptime_str = a.uptime_secs.map(ui::format_uptime).unwrap_or_else(|| "—".into());
-                    let spark = ui::sparkline_str(&a.cpu_history, 10);
+                    let hist: Vec<u64> = a.cpu_history.iter().copied().collect();
+                    let spark = ui::sparkline_str(&hist, 10);
 
                     Row::new(vec![
                         Line::from(Span::styled(status_span, Style::default().fg(status_color))),

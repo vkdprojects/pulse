@@ -464,7 +464,7 @@ pub async fn collect_battery() -> u32 {
 }
 
 pub async fn collect_ssh_sessions() -> Vec<pulse_proto::pb::SshSession> {
-    parse_utmp().unwrap_or_default()
+    tokio::task::spawn_blocking(parse_utmp).await.ok().and_then(|r| r.ok()).unwrap_or_default()
 }
 
 fn parse_utmp() -> Result<Vec<pulse_proto::pb::SshSession>> {

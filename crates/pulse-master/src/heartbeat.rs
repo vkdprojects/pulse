@@ -19,6 +19,7 @@ async fn check_once(storage: &Storage, alerts: &AlertEngine) -> anyhow::Result<(
         info!(agent_id, "agent went OFFLINE");
         storage.set_agent_status(&agent_id, "offline").await?;
         alerts.fire_custom(&agent_id, "agent_offline", "Agent stopped sending metrics").await;
+        alerts.evict_state(&agent_id).await;
     }
     Ok(())
 }

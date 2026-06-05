@@ -103,6 +103,9 @@ impl ExecScreen {
             }
             Err(e) => self.output.push(format!("[error: {e}]")),
         }
+        if self.output.len() > 1000 {
+            self.output.drain(..self.output.len() - 800);
+        }
         self.input.clear();
         self.running = false;
     }

@@ -11,6 +11,7 @@ pub struct AlertEngine {
     webhook_url: Option<String>,
     cpu_threshold_bp: u32,
     mem_threshold_pct: u32,
+    bw_threshold_bytes: u64,
     storage: Option<Storage>,
 }
 
@@ -31,12 +32,14 @@ impl AlertEngine {
         let webhook_url = std::env::var("PULSE_ALERT_WEBHOOK").ok();
         let cpu_threshold = std::env::var("PULSE_ALERT_CPU_PCT").ok().and_then(|s| s.parse().ok()).unwrap_or(90);
         let mem_threshold = std::env::var("PULSE_ALERT_MEM_PCT").ok().and_then(|s| s.parse().ok()).unwrap_or(90);
+        let bw_mbps: u64 = std::env::var("PULSE_ALERT_BW_MBPS").ok().and_then(|s| s.parse().ok()).unwrap_or(100);
 
         Self {
             state: Arc::new(Mutex::new(HashMap::new())),
             webhook_url,
             cpu_threshold_bp: cpu_threshold * 100,
             mem_threshold_pct: mem_threshold,
+            bw_threshold_bytes: bw_mbps * 1_000_000,
             storage: None,
         }
     }
@@ -47,57 +50,71 @@ impl AlertEngine {
     }
 
     pub async fn check(&self, payload: &MetricsPayload) {
-        let mut state = self.state.lock().await;
-        let entry = state.entry(payload.agent_id.clone()).or_insert(AlertState {
-            cpu_high_count: 0,
-            mem_high_count: 0,
-            bandwidth_high_count: 0,
-        });
+        let mut alerts_to_fire: Vec<(String, String)> = Vec::new();
 
-        if let Some(ref cpu) = payload.cpu {
-            if cpu.usage_total_bp > self.cpu_threshold_bp {
-                entry.cpu_high_count += 1;
-                if entry.cpu_high_count == 3 {
-                    let msg = format!(
-                        "CPU at {:.1}% (threshold: {}%)",
-                        cpu.usage_total_bp as f32 / 100.0,
-                        self.cpu_threshold_bp / 100
-                    );
-                    self.fire(&payload.agent_id, "cpu_high", &msg).await;
-                }
-            } else {
-                entry.cpu_high_count = 0;
-            }
-        }
-
-        if let Some(ref mem) = payload.memory
-            && mem.total_bytes > 0
         {
-            let used_pct = (mem.used_bytes * 100 / mem.total_bytes) as u32;
-            if used_pct > self.mem_threshold_pct {
-                entry.mem_high_count += 1;
-                if entry.mem_high_count == 3 {
-                    let msg = format!("Memory at {}% (threshold: {}%)", used_pct, self.mem_threshold_pct);
-                    self.fire(&payload.agent_id, "mem_high", &msg).await;
+            let mut state = self.state.lock().await;
+            let entry = state.entry(payload.agent_id.clone()).or_insert(AlertState {
+                cpu_high_count: 0,
+                mem_high_count: 0,
+                bandwidth_high_count: 0,
+            });
+
+            if let Some(ref cpu) = payload.cpu {
+                if cpu.usage_total_bp > self.cpu_threshold_bp {
+                    entry.cpu_high_count += 1;
+                    if entry.cpu_high_count == 3 {
+                        alerts_to_fire.push((
+                            "cpu_high".into(),
+                            format!(
+                                "CPU at {:.1}% (threshold: {}%)",
+                                cpu.usage_total_bp as f32 / 100.0,
+                                self.cpu_threshold_bp / 100
+                            ),
+                        ));
+                    }
+                } else {
+                    entry.cpu_high_count = 0;
+                }
+            }
+
+            if let Some(ref mem) = payload.memory
+                && mem.total_bytes > 0
+            {
+                let used_pct = (mem.used_bytes * 100 / mem.total_bytes) as u32;
+                if used_pct > self.mem_threshold_pct {
+                    entry.mem_high_count += 1;
+                    if entry.mem_high_count == 3 {
+                        alerts_to_fire.push((
+                            "mem_high".into(),
+                            format!("Memory at {}% (threshold: {}%)", used_pct, self.mem_threshold_pct),
+                        ));
+                    }
+                } else {
+                    entry.mem_high_count = 0;
+                }
+            }
+
+            let max_bw = payload.net.iter().map(|n| n.rx_bytes_sec.max(n.tx_bytes_sec)).max().unwrap_or(0);
+            if max_bw > self.bw_threshold_bytes {
+                entry.bandwidth_high_count += 1;
+                if entry.bandwidth_high_count == 3 {
+                    alerts_to_fire.push((
+                        "bandwidth_high".into(),
+                        format!(
+                            "Bandwidth at {} MB/s (threshold: {} MB/s)",
+                            max_bw / 1_000_000,
+                            self.bw_threshold_bytes / 1_000_000
+                        ),
+                    ));
                 }
             } else {
-                entry.mem_high_count = 0;
+                entry.bandwidth_high_count = 0;
             }
-        }
+        } // lock dropped
 
-        // Bandwidth check (>100MB/s on any interface)
-        let bw_threshold: u64 =
-            std::env::var("PULSE_ALERT_BW_MBPS").ok().and_then(|s| s.parse().ok()).unwrap_or(100) * 1_000_000;
-        let max_bw = payload.net.iter().map(|n| n.rx_bytes_sec.max(n.tx_bytes_sec)).max().unwrap_or(0);
-        if max_bw > bw_threshold {
-            entry.bandwidth_high_count += 1;
-            if entry.bandwidth_high_count == 3 {
-                let msg =
-                    format!("Bandwidth at {} MB/s (threshold: {} MB/s)", max_bw / 1_000_000, bw_threshold / 1_000_000);
-                self.fire(&payload.agent_id, "bandwidth_high", &msg).await;
-            }
-        } else {
-            entry.bandwidth_high_count = 0;
+        for (alert_type, msg) in &alerts_to_fire {
+            self.fire(&payload.agent_id, alert_type, msg).await;
         }
     }
 
@@ -121,6 +138,10 @@ impl AlertEngine {
 
     pub async fn fire_custom(&self, agent_id: &str, alert_type: &str, message: &str) {
         self.fire(agent_id, alert_type, message).await;
+    }
+
+    pub async fn evict_state(&self, agent_id: &str) {
+        self.state.lock().await.remove(agent_id);
     }
 }
 
