@@ -53,7 +53,7 @@ impl HomeScreen {
         // Header with logo
         let header_lines = vec![
             Line::from(vec![
-                Span::styled("  ⚡ ", theme.title()),
+                Span::styled("  pulse ", theme.title()),
                 Span::styled("Pulse", theme.title()),
                 Span::styled("  │  ", theme.dim()),
                 Span::styled(format!("{} masters", config.masters.len()), theme.muted()),

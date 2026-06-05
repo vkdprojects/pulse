@@ -115,7 +115,7 @@ impl ExecScreen {
         // Header with explanation
         let header = Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("  ⚡ ", theme.title()),
+                Span::styled("  pulse ", theme.title()),
                 Span::styled(format!("exec @ {}", self.hostname), theme.title()),
             ]),
             Line::from(Span::styled("  Executa comandos no servidor master. Requer admin token.", theme.dim())),

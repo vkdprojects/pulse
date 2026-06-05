@@ -206,7 +206,7 @@ impl ProvisionScreen {
             ProvisionTarget::Agent => "Instalar Agent via SSH",
         };
         let mut header_lines = vec![
-            Line::from(vec![Span::styled("  ⚡ ", theme.title()), Span::styled(title, theme.title())]),
+            Line::from(vec![Span::styled("  pulse ", theme.title()), Span::styled(title, theme.title())]),
             Line::from(""),
         ];
         for line in &explanation {

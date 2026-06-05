@@ -87,7 +87,7 @@ impl DetailScreen {
             Line::from(
                 [
                     vec![
-                        Span::styled("  ⚡ ", theme.title()),
+                        Span::styled("  pulse ", theme.title()),
                         Span::styled(hostname, theme.title()),
                         Span::styled("  ", theme.dim()),
                         Span::styled(if status == "online" { "●" } else { "○" }, status_style),
