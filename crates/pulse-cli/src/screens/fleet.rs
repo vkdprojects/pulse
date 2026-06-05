@@ -88,7 +88,7 @@ impl FleetScreen {
 
         let header = Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("  pulse ", theme.title()),
+                Span::styled(" ◉ pulse ", theme.title()),
                 Span::styled(&self.context_name, theme.title()),
                 Span::styled("  │  ", theme.dim()),
                 Span::styled(format!("{total} agents"), theme.muted()),

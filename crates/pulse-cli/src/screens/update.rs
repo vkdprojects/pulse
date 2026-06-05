@@ -49,7 +49,7 @@ impl UpdateScreen {
         let updated = self.agents.iter().filter(|a| a.version == self.target_version).count();
         let total = self.agents.len();
         let header = Paragraph::new(Line::from(vec![
-            Span::styled("pulse update", theme.title()),
+            Span::styled(" ◉ pulse update", theme.title()),
             Span::styled(
                 format!("  │  Target: {target}  │  Rollout: {}%  │  {updated}/{total} atualizado", self.rollout_pct),
                 theme.muted(),
