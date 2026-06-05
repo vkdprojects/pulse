@@ -10,6 +10,15 @@ use theme::Theme;
 /// Rounded border type for all panels
 pub const BORDER: BorderType = BorderType::Rounded;
 
+/// Pulse logo ASCII art (compact, fits in ~6 lines)
+pub const LOGO: &[&str] =
+    &["    ╭━━━╮    ", "   ╭┫ ⚡ ┣╮   ", "  ╭┫ PULSE┣╮  ", "  ┃╰━━━━━╯┃  ", "  ╰━━━┳━━━╯  ", "      ┃      "];
+
+/// Colored logo lines
+pub fn logo_lines(theme: &Theme) -> Vec<Line<'static>> {
+    LOGO.iter().map(|line| Line::from(Span::styled(line.to_string(), theme.title()))).collect()
+}
+
 /// Context-aware footer with colored keys
 pub fn footer_line<'a>(keys: &[(&'a str, &'a str)], theme: &Theme) -> Line<'a> {
     let mut spans = Vec::new();

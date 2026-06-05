@@ -56,29 +56,26 @@ impl SetupScreen {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let chunks = Layout::vertical([
-            Constraint::Length(8),
+            Constraint::Length(10),
             Constraint::Length(11),
             Constraint::Min(3),
             Constraint::Length(2),
         ])
         .split(area);
 
-        // Welcome header with explanation
-        let header = Paragraph::new(vec![
-            Line::from(""),
-            Line::from(Span::styled("  ⚡ Bem-vindo ao Pulse!", theme.title())),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Pulse monitora seus servidores: CPU, memória, disco, rede — tudo em tempo real.",
-                theme.normal(),
-            )),
-            Line::from(Span::styled(
-                "  Para começar, precisamos acessar o repositório para baixar os binários.",
-                theme.muted(),
-            )),
-            Line::from(""),
-        ])
-        .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
+        // Welcome header with logo + explanation
+        let mut header_lines = ui::logo_lines(theme);
+        header_lines.push(Line::from(""));
+        header_lines.push(Line::from(Span::styled(
+            "  Pulse monitora seus servidores: CPU, memória, disco, rede — tudo em tempo real.",
+            theme.normal(),
+        )));
+        header_lines.push(Line::from(Span::styled(
+            "  Para começar, precisamos acessar o repositório para baixar os binários.",
+            theme.muted(),
+        )));
+        let header = Paragraph::new(header_lines)
+            .block(Block::default().borders(Borders::BOTTOM).border_type(BORDER).border_style(theme.border()));
         frame.render_widget(header, chunks[0]);
 
         // Form with explanations
