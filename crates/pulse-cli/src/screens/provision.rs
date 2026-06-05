@@ -39,12 +39,20 @@ pub struct Field {
 
 impl ProvisionScreen {
     pub fn new(target: ProvisionTarget, master_url: String, register_token: String) -> Self {
-        let fields = vec![
+        let mut fields = vec![
             Field { label: "Host", value: String::new(), placeholder: "192.168.1.100", is_password: false },
             Field { label: "Port", value: "22".into(), placeholder: "22", is_password: false },
             Field { label: "User", value: "root".into(), placeholder: "root", is_password: false },
             Field { label: "Password", value: String::new(), placeholder: "••••••", is_password: true },
         ];
+        if target == ProvisionTarget::Agent {
+            fields.push(Field {
+                label: "Token",
+                value: register_token.clone(),
+                placeholder: "register token do master",
+                is_password: false,
+            });
+        }
         Self {
             target,
             fields,
@@ -101,7 +109,12 @@ impl ProvisionScreen {
         self.log.push("Iniciando provisionamento...".into());
 
         let master_url = self.master_url.clone();
-        let register_token = self.register_token.clone();
+        // For agent, token is in field[4]; for master, empty
+        let register_token = if self.target == ProvisionTarget::Agent {
+            self.fields.get(4).map(|f| f.value.clone()).unwrap_or_default()
+        } else {
+            String::new()
+        };
         let target = self.target;
 
         tokio::spawn(async move {

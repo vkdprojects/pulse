@@ -37,6 +37,7 @@ pub fn router_full(
         .route("/api/agents/{id}", axum::routing::delete(delete_agent))
         .route("/api/agents/{id}/exec", axum::routing::post(post_exec))
         .route("/api/agents/{id}/file", axum::routing::post(post_file))
+        .route("/api/register-token", axum::routing::get(get_register_token))
         .route("/api/updates/upload", axum::routing::post(crate::updates::upload_binary))
         .route("/api/updates/rollout", axum::routing::post(crate::updates::set_rollout))
         .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB for binary uploads
@@ -180,6 +181,15 @@ async fn get_connections(State(state): State<AppState>, Path(agent_id): Path<Str
         Ok(conns) => Json(json!({"agent_id": agent_id, "connections": conns})),
         Err(e) => Json(json!({"error": e.to_string()})),
     }
+}
+
+async fn get_register_token() -> Json<Value> {
+    let token = std::fs::read_to_string("/var/lib/pulse/register-token")
+        .or_else(|_| std::fs::read_to_string("data/register-token"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    Json(json!({"register_token": token}))
 }
 
 /// Execute a command. Currently runs on the master server (useful for master-local ops).

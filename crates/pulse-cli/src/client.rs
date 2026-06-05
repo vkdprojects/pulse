@@ -130,4 +130,9 @@ impl Client {
     pub async fn health_check(&self) -> bool {
         self.get("/health").await.is_ok()
     }
+
+    pub async fn register_token(&self) -> Result<String> {
+        let v = self.get("/api/register-token").await?;
+        Ok(v.get("register_token").and_then(|t| t.as_str()).unwrap_or("").to_string())
+    }
 }

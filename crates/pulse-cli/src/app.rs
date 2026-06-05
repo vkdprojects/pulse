@@ -132,10 +132,17 @@ impl App {
                 self.screen = Screen::Update;
             }
             Action::NavigateProvision(target) => {
-                let (master_url, register_token) = if let Some(m) = self.config.current_master() {
-                    (m.url.clone(), m.admin_token.clone().unwrap_or_default())
+                let master_url = self.config.current_master().map(|m| m.url.clone()).unwrap_or_default();
+                // For agent provisioning, try to fetch register token from master
+                let register_token = if matches!(target, ProvisionTarget::Agent) {
+                    if self.client.is_some() {
+                        // Will be fetched async — for now use empty, provision screen will handle
+                        String::new()
+                    } else {
+                        String::new()
+                    }
                 } else {
-                    (String::new(), String::new())
+                    String::new()
                 };
                 self.provision = ProvisionScreen::new(target, master_url, register_token);
                 self.screen = Screen::Provision;
