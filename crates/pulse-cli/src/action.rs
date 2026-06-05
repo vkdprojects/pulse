@@ -21,6 +21,7 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub enum ModalAction {
     AddMaster,
-    RenameMaster(String), // current name
+    RenameMaster(String),
+    RenameAgent(String, String), // agent_id, current_name
     ConfirmDelete(String),
 }

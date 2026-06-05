@@ -71,6 +71,14 @@ impl FleetScreen {
             }
             KeyCode::Char('u') => return Action::NavigateUpdate,
             KeyCode::Char('n') => return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Agent),
+            KeyCode::Char('r') => {
+                if let Some(agent) = self.filtered_agents().get(self.selected) {
+                    return Action::ShowModal(crate::action::ModalAction::RenameAgent(
+                        agent.id.clone(),
+                        agent.hostname.clone(),
+                    ));
+                }
+            }
             KeyCode::Esc => return Action::NavigateHome,
             KeyCode::Char('q') => return Action::Quit,
             _ => {}
@@ -190,6 +198,7 @@ impl FleetScreen {
                     ("⏎", "detalhe"),
                     ("/", "filtro"),
                     ("n", "add agent"),
+                    ("r", "renomear"),
                     ("u", "updates"),
                     ("Esc", "voltar"),
                 ],

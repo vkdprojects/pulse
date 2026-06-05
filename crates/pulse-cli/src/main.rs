@@ -158,6 +158,20 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &m
                                     }
                                 }
                             }
+                            action::ModalAction::RenameAgent(agent_id, _) => {
+                                if let Some(new_name) = modal.fields.first().map(|f| f.value.clone()) {
+                                    if !new_name.is_empty() {
+                                        if let Some(ref client) = app.client {
+                                            let url = format!("{}/api/agents/{}/name", client.base_url, agent_id);
+                                            let mut req = client.http.put(&url);
+                                            if let Some(ref t) = client.token {
+                                                req = req.bearer_auth(t);
+                                            }
+                                            let _ = req.json(&serde_json::json!({"name": new_name})).send().await;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     app.modal = None;

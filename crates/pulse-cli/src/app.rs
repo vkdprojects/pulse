@@ -249,6 +249,13 @@ fn create_modal(action: ModalAction) -> Modal {
             action,
             confirmed: false,
         },
+        ModalAction::RenameAgent(_, ref name) => Modal {
+            title: "Renomear Agent".into(),
+            fields: vec![ModalField { label: "Novo nome".into(), value: name.clone(), placeholder: "".into() }],
+            focused: 0,
+            action,
+            confirmed: false,
+        },
     }
 }
 

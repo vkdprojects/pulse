@@ -35,6 +35,7 @@ pub fn router_full(
     // Admin-protected routes
     let admin_routes = Router::new()
         .route("/api/agents/{id}", axum::routing::delete(delete_agent))
+        .route("/api/agents/{id}/name", axum::routing::put(rename_agent))
         .route("/api/agents/{id}/exec", axum::routing::post(post_exec))
         .route("/api/agents/{id}/file", axum::routing::post(post_file))
         .route("/api/register-token", axum::routing::get(get_register_token))
@@ -181,6 +182,35 @@ async fn get_connections(State(state): State<AppState>, Path(agent_id): Path<Str
         Ok(conns) => Json(json!({"agent_id": agent_id, "connections": conns})),
         Err(e) => Json(json!({"error": e.to_string()})),
     }
+}
+
+async fn rename_agent(
+    State(state): State<AppState>,
+    Path(agent_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let Some(new_name) = body.get("name").and_then(|v| v.as_str()) else {
+        return Json(json!({"error": "name field required"}));
+    };
+    match &state.storage {
+        crate::storage::Storage::Postgres(pool) => {
+            sqlx::query("UPDATE agents SET hostname = $2 WHERE id = $1")
+                .bind(&agent_id)
+                .bind(new_name)
+                .execute(pool)
+                .await
+                .ok();
+        }
+        crate::storage::Storage::Sqlite(pool) => {
+            sqlx::query("UPDATE agents SET hostname = $2 WHERE id = $1")
+                .bind(&agent_id)
+                .bind(new_name)
+                .execute(pool)
+                .await
+                .ok();
+        }
+    }
+    Json(json!({"ok": true, "agent_id": agent_id, "name": new_name}))
 }
 
 async fn get_register_token() -> Json<Value> {
