@@ -31,7 +31,7 @@ async fn run_agent(config: Config) -> Result<()> {
 
     // Spawn background update checker (checks every 5 minutes, runs once for lifetime)
     let master_ep = config.master_endpoint.clone();
-    let current_ver = env!("CARGO_PKG_VERSION").to_string();
+    let current_ver = option_env!("PULSE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")).to_string();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(300));
         tick.tick().await; // skip first immediate tick
@@ -69,7 +69,7 @@ async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayloa
             hostname: hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "unknown".into()),
             os: std::env::consts::OS.into(),
             arch: std::env::consts::ARCH.into(),
-            agent_version: env!("CARGO_PKG_VERSION").into(),
+            agent_version: option_env!("PULSE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")).into(),
             labels: config.labels.clone(),
             auth_token: config.auth_token.clone(),
         })
