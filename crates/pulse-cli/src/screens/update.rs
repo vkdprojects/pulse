@@ -35,6 +35,7 @@ impl UpdateScreen {
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
         match key.code {
             KeyCode::Esc => return Action::NavigateFleet(String::new()),
+            KeyCode::Char('n') => return Action::NavigateProvision(crate::screens::provision::ProvisionTarget::Agent),
             KeyCode::Char('q') => return Action::Quit,
             _ => {}
         }
@@ -96,7 +97,7 @@ impl UpdateScreen {
         .block(Block::default().borders(Borders::NONE));
         frame.render_widget(table, chunks[1]);
 
-        let footer = ui::footer_line(&[("Esc", "voltar"), ("q", "sair")], theme);
+        let footer = ui::footer_line(&[("n", "reinstalar agent via SSH"), ("Esc", "voltar"), ("q", "sair")], theme);
         frame.render_widget(Paragraph::new(footer), chunks[2]);
     }
 }
