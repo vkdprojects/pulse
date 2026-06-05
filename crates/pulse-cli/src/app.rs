@@ -310,3 +310,338 @@ fn render_modal(frame: &mut Frame, modal: &Modal, theme: &Theme) {
         .title(format!(" {} ", modal.title));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::AgentOverview;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn app_with_masters() -> App {
+        let mut config = Config::default();
+        config.add_master("prod".into(), "http://prod:8080".into(), Some("token".into()));
+        config.add_master("staging".into(), "http://staging:8080".into(), None);
+        App::new(config)
+    }
+
+    fn app_in_fleet() -> App {
+        let mut app = app_with_masters();
+        app.process_action(Action::NavigateFleet("prod".into()));
+        app.fleet.agents = vec![
+            AgentOverview {
+                id: "agent-001".into(),
+                hostname: "web-01".into(),
+                status: "online".into(),
+                cpu_pct: Some(23.0),
+                mem_pct: Some(67.0),
+                uptime_secs: Some(86400),
+                version: "0.3.0".into(),
+                cpu_history: vec![10, 20, 30],
+            },
+            AgentOverview {
+                id: "agent-002".into(),
+                hostname: "db-01".into(),
+                status: "offline".into(),
+                cpu_pct: None,
+                mem_pct: None,
+                uptime_secs: None,
+                version: "0.2.0".into(),
+                cpu_history: vec![],
+            },
+        ];
+        app
+    }
+
+    // ─── Navigation Tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_home_enter_navigates_to_fleet() {
+        let mut app = app_with_masters();
+        assert!(matches!(app.screen, Screen::Home));
+
+        let action = app.handle_key(key(KeyCode::Enter));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Fleet));
+        assert!(app.client.is_some());
+        assert_eq!(app.fleet.context_name, "prod");
+    }
+
+    #[test]
+    fn test_home_n_opens_modal() {
+        let mut app = app_with_masters();
+        let action = app.handle_key(key(KeyCode::Char('n')));
+
+        assert!(matches!(action, Action::ShowModal(ModalAction::AddMaster)));
+        app.process_action(action);
+        assert!(app.modal.is_some());
+    }
+
+    #[test]
+    fn test_home_s_navigates_to_provision() {
+        let mut app = app_with_masters();
+        let action = app.handle_key(key(KeyCode::Char('s')));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Provision));
+        assert_eq!(app.provision.target, ProvisionTarget::Master);
+    }
+
+    #[test]
+    fn test_fleet_enter_navigates_to_detail() {
+        let mut app = app_in_fleet();
+        let action = app.handle_key(key(KeyCode::Enter));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Detail));
+        assert_eq!(app.detail.agent_id, "agent-001");
+        assert_eq!(app.detail.agent.as_ref().unwrap().hostname, "web-01");
+    }
+
+    #[test]
+    fn test_fleet_esc_navigates_to_home() {
+        let mut app = app_in_fleet();
+        let action = app.handle_key(key(KeyCode::Esc));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Home));
+        assert!(app.client.is_none());
+    }
+
+    #[test]
+    fn test_fleet_u_navigates_to_update() {
+        let mut app = app_in_fleet();
+        let action = app.handle_key(key(KeyCode::Char('u')));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Update));
+    }
+
+    #[test]
+    fn test_fleet_n_navigates_to_provision_agent() {
+        let mut app = app_in_fleet();
+        let action = app.handle_key(key(KeyCode::Char('n')));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Provision));
+        assert_eq!(app.provision.target, ProvisionTarget::Agent);
+        // Agent provision should have 5 fields (host, port, user, pass, token)
+        assert_eq!(app.provision.fields.len(), 5);
+    }
+
+    #[test]
+    fn test_detail_e_navigates_to_exec() {
+        let mut app = app_in_fleet();
+        // Navigate to detail first
+        app.process_action(Action::NavigateDetail("agent-001".into()));
+        assert!(matches!(app.screen, Screen::Detail));
+
+        let action = app.handle_key(key(KeyCode::Char('e')));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Exec));
+        assert_eq!(app.exec.agent_id, "agent-001");
+        assert_eq!(app.exec.hostname, "web-01");
+    }
+
+    #[test]
+    fn test_detail_esc_navigates_back_to_fleet() {
+        let mut app = app_in_fleet();
+        app.process_action(Action::NavigateDetail("agent-001".into()));
+
+        let action = app.handle_key(key(KeyCode::Esc));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Fleet));
+    }
+
+    #[test]
+    fn test_exec_esc_navigates_back_to_detail() {
+        let mut app = app_in_fleet();
+        app.process_action(Action::NavigateDetail("agent-001".into()));
+        app.process_action(Action::NavigateExec("agent-001".into(), "web-01".into()));
+        assert!(matches!(app.screen, Screen::Exec));
+
+        let action = app.handle_key(key(KeyCode::Esc));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Detail));
+    }
+
+    #[test]
+    fn test_update_esc_navigates_back_to_fleet() {
+        let mut app = app_in_fleet();
+        app.process_action(Action::NavigateUpdate);
+
+        let action = app.handle_key(key(KeyCode::Esc));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Fleet));
+    }
+
+    #[test]
+    fn test_provision_esc_navigates_back_to_home() {
+        let mut app = app_with_masters();
+        app.process_action(Action::NavigateProvision(ProvisionTarget::Master));
+
+        let action = app.handle_key(key(KeyCode::Esc));
+        app.process_action(action);
+
+        assert!(matches!(app.screen, Screen::Home));
+    }
+
+    // ─── Modal Tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_modal_esc_does_not_confirm() {
+        let mut app = app_with_masters();
+        app.process_action(Action::ShowModal(ModalAction::AddMaster));
+        assert!(app.modal.is_some());
+
+        // Press Esc — should close without confirming
+        let action = app.handle_key(key(KeyCode::Esc));
+        assert!(matches!(action, Action::CloseModal));
+        assert!(!app.modal.as_ref().unwrap().confirmed);
+    }
+
+    #[test]
+    fn test_modal_enter_with_data_confirms() {
+        let mut app = app_with_masters();
+        app.process_action(Action::ShowModal(ModalAction::AddMaster));
+
+        // Fill fields
+        let modal = app.modal.as_mut().unwrap();
+        modal.fields[0].value = "new-master".into();
+        modal.fields[1].value = "http://new:8080".into();
+
+        // Press Enter — should confirm
+        let action = app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(action, Action::CloseModal));
+        assert!(app.modal.as_ref().unwrap().confirmed);
+    }
+
+    #[test]
+    fn test_modal_enter_without_data_does_not_confirm() {
+        let mut app = app_with_masters();
+        app.process_action(Action::ShowModal(ModalAction::AddMaster));
+
+        // Fields are empty — Enter should NOT confirm, should move to next field
+        let action = app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(action, Action::None));
+        assert_eq!(app.modal.as_ref().unwrap().focused, 1); // moved to next field
+    }
+
+    // ─── Data Flow Tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_data_loaded_updates_fleet() {
+        let mut app = app_in_fleet();
+        let new_agents = vec![AgentOverview {
+            id: "agent-001".into(),
+            hostname: "web-01".into(),
+            status: "online".into(),
+            cpu_pct: Some(45.0),
+            mem_pct: Some(70.0),
+            uptime_secs: Some(90000),
+            version: "0.4.0".into(),
+            cpu_history: vec![],
+        }];
+
+        app.process_action(Action::DataLoaded(new_agents));
+
+        assert_eq!(app.fleet.agents.len(), 1);
+        assert_eq!(app.fleet.agents[0].cpu_pct, Some(45.0));
+        assert_eq!(app.fleet.agents[0].version, "0.4.0");
+    }
+
+    #[test]
+    fn test_data_loaded_preserves_sparkline_history() {
+        let mut app = app_in_fleet();
+        // app already has agent-001 with cpu_history: [10, 20, 30]
+
+        let new_agents = vec![AgentOverview {
+            id: "agent-001".into(),
+            hostname: "web-01".into(),
+            status: "online".into(),
+            cpu_pct: Some(50.0),
+            mem_pct: Some(70.0),
+            uptime_secs: Some(90000),
+            version: "0.3.0".into(),
+            cpu_history: vec![], // API doesn't send history
+        }];
+
+        app.process_action(Action::DataLoaded(new_agents));
+
+        // History should be preserved + new point appended
+        assert_eq!(app.fleet.agents[0].cpu_history, vec![10, 20, 30, 50]);
+    }
+
+    // ─── Fleet Navigation Tests ───────────────────────────────────
+
+    #[test]
+    fn test_fleet_jk_navigation() {
+        let mut app = app_in_fleet();
+        assert_eq!(app.fleet.selected, 0);
+
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(app.fleet.selected, 1);
+
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(app.fleet.selected, 1); // can't go past last
+
+        app.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(app.fleet.selected, 0);
+
+        app.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(app.fleet.selected, 0); // can't go negative
+    }
+
+    #[test]
+    fn test_fleet_filter() {
+        let mut app = app_in_fleet();
+
+        // Start filtering
+        app.handle_key(key(KeyCode::Char('/')));
+        assert!(app.fleet.filtering);
+
+        // Type "web"
+        app.handle_key(key(KeyCode::Char('w')));
+        app.handle_key(key(KeyCode::Char('e')));
+        app.handle_key(key(KeyCode::Char('b')));
+        assert_eq!(app.fleet.filter, "web");
+
+        // Should filter to 1 agent
+        assert_eq!(app.fleet.filtered_agents().len(), 1);
+        assert_eq!(app.fleet.filtered_agents()[0].hostname, "web-01");
+
+        // Esc exits filter mode
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.fleet.filtering);
+        // Filter stays active
+        assert_eq!(app.fleet.filtered_agents().len(), 1);
+    }
+
+    // ─── Quit Logic ───────────────────────────────────────────────
+
+    #[test]
+    fn test_q_quits_from_home() {
+        let mut app = app_with_masters();
+        let action = app.handle_key(key(KeyCode::Char('q')));
+        assert!(matches!(action, Action::Quit));
+    }
+
+    #[test]
+    fn test_q_does_not_quit_in_exec() {
+        let mut app = app_in_fleet();
+        app.process_action(Action::NavigateExec("agent-001".into(), "web-01".into()));
+
+        // 'q' in exec should go to input, not quit
+        app.handle_key(key(KeyCode::Char('q')));
+        assert_eq!(app.exec.input, "q");
+        assert!(!app.quit);
+    }
+}
