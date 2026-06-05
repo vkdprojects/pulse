@@ -1,7 +1,5 @@
 use anyhow::{Result, bail};
-use russh::keys::*;
-use russh::*;
-use std::sync::Arc;
+use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use crate::github;
@@ -17,181 +15,165 @@ pub struct InstallResult {
     pub master_url: String,
 }
 
-struct SshHandler;
-
-#[async_trait::async_trait]
-impl client::Handler for SshHandler {
-    type Error = anyhow::Error;
-    async fn check_server_key(&mut self, _key: &key::PublicKey) -> Result<bool, Self::Error> {
-        Ok(true) // TOFU
-    }
-}
-
 pub struct InstallOpts {
     pub host: String,
     pub port: u16,
     pub user: String,
-    pub auth: SshAuth,
+    pub key_file: Option<String>,
     pub github_token: String,
     pub github_repo: String,
     pub master_url: Option<String>,
     pub register_token: Option<String>,
 }
 
-#[derive(Clone)]
-pub enum SshAuth {
-    Password(String),
-    Key(String),                       // path to private key (unencrypted or agent-loaded)
-    KeyWithPassphrase(String, String), // path, passphrase
+impl InstallOpts {
+    /// Build the SSH destination string: user@host
+    fn dest(&self) -> String {
+        format!("{}@{}", self.user, self.host)
+    }
+
+    /// Build common SSH args: [-p port] [-i key]
+    fn ssh_args(&self) -> Vec<String> {
+        let mut args = vec![
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-p".into(),
+            self.port.to_string(),
+        ];
+        if let Some(ref key) = self.key_file {
+            args.push("-i".into());
+            args.push(key.clone());
+        }
+        args
+    }
 }
 
-/// Install pulse-master on a remote server via SSH.
+/// Install pulse-master on a remote server.
 pub async fn install_master(opts: InstallOpts, tx: mpsc::Sender<InstallEvent>) {
     let result = do_install_master(opts, &tx).await;
     let _ = tx.send(InstallEvent::Done(result)).await;
 }
 
-/// Install pulse-agent on a remote server via SSH.
+/// Install pulse-agent on a remote server.
 pub async fn install_agent(opts: InstallOpts, tx: mpsc::Sender<InstallEvent>) {
     let result = do_install_agent(opts, &tx).await;
     let _ = tx.send(InstallEvent::Done(result)).await;
 }
 
 async fn do_install_master(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Result<InstallResult> {
-    let session = connect_ssh(&opts, tx).await?;
+    // Test SSH connection
+    p(tx, "Testando conexão SSH...").await;
+    ssh_exec(&opts, "echo ok").await?;
+    p(tx, "✓ Conexão SSH OK (via ssh-agent/keychain)").await;
 
     // Detect arch
-    let arch = detect_arch(&session, tx).await?;
+    let arch = ssh_exec(&opts, "uname -m").await?.trim().to_string();
+    let arch_name = match arch.as_str() {
+        "x86_64" | "amd64" => "x86_64",
+        "aarch64" | "arm64" => "aarch64",
+        _ => bail!("Arch não suportada: {arch}"),
+    };
+    p(tx, &format!("  Arch: linux/{arch_name}")).await;
 
     // Download binary from GitHub
-    let asset = github::asset_name("master", &arch);
-    tx.send(InstallEvent::Progress(format!("Baixando {asset} do GitHub..."))).await.ok();
+    let asset = github::asset_name("master", arch_name);
+    p(tx, &format!("Baixando {asset} do GitHub...")).await;
     let (version, binary) = github::download_release_binary(&opts.github_token, &opts.github_repo, &asset).await?;
-    tx.send(InstallEvent::Progress(format!("✓ Download completo ({} MB, {version})", binary.len() / 1_048_576)))
-        .await
-        .ok();
+    p(tx, &format!("✓ Download completo ({:.1} MB, {version})", binary.len() as f64 / 1_048_576.0)).await;
 
-    // Upload via SFTP
-    upload_binary(&session, &binary, "/usr/local/bin/pulse-master", tx).await?;
+    // Upload binary via scp
+    let tmp_local = format!("/tmp/pulse-master-upload-{}", std::process::id());
+    tokio::fs::write(&tmp_local, &binary).await?;
+    p(tx, "Uploading binário...").await;
+    scp_upload(&opts, &tmp_local, "/tmp/pulse-master-upload").await?;
+    tokio::fs::remove_file(&tmp_local).await.ok();
+    ssh_exec(
+        &opts,
+        "sudo mv /tmp/pulse-master-upload /usr/local/bin/pulse-master && sudo chmod +x /usr/local/bin/pulse-master",
+    )
+    .await?;
+    p(tx, "✓ Upload completo").await;
 
-    // Create directories
-    exec(&session, "sudo mkdir -p /var/lib/pulse /etc/pulse").await?;
+    // Create dirs + systemd
+    p(tx, "Configurando systemd...").await;
+    ssh_exec(&opts, "sudo mkdir -p /var/lib/pulse /etc/pulse").await?;
 
-    // Create systemd service
-    let unit = r#"[Unit]
-Description=Vixpi Pulse Master
-After=network-online.target
-Wants=network-online.target
+    let unit = "[Unit]\nDescription=Vixpi Pulse Master\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-master\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nEnvironment=PULSE_LISTEN=0.0.0.0:50051\nWorkingDirectory=/var/lib/pulse\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/var/lib/pulse /etc/pulse\n\n[Install]\nWantedBy=multi-user.target";
+    ssh_exec(&opts, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-master.service > /dev/null")).await?;
+    ssh_exec(&opts, "sudo systemctl daemon-reload && sudo systemctl enable --now pulse-master").await?;
+    p(tx, "✓ pulse-master iniciado").await;
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/pulse-master
-Restart=always
-RestartSec=5
-Environment=RUST_LOG=info
-Environment=PULSE_LISTEN=0.0.0.0:50051
-WorkingDirectory=/var/lib/pulse
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/var/lib/pulse /etc/pulse
-
-[Install]
-WantedBy=multi-user.target"#;
-
-    tx.send(InstallEvent::Progress("Criando serviço systemd...".into())).await.ok();
-    exec(&session, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-master.service > /dev/null")).await?;
-    exec(&session, "sudo systemctl daemon-reload").await?;
-    exec(&session, "sudo systemctl enable --now pulse-master").await?;
-
-    // Wait for master to generate tokens
-    tx.send(InstallEvent::Progress("Aguardando master iniciar...".into())).await.ok();
+    // Wait and read tokens
+    p(tx, "Aguardando tokens...").await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let admin_token = ssh_exec(&opts, "sudo cat /var/lib/pulse/admin-token 2>/dev/null").await?.trim().to_string();
+    let register_token =
+        ssh_exec(&opts, "sudo cat /var/lib/pulse/register-token 2>/dev/null").await?.trim().to_string();
 
-    // Read tokens
-    let admin_token = exec(&session, "sudo cat /var/lib/pulse/admin-token 2>/dev/null").await?.trim().to_string();
-    let register_token = exec(&session, "sudo cat /var/lib/pulse/register-token 2>/dev/null").await?.trim().to_string();
-
-    let master_url = format!("http://{}:8080", opts.host);
-
-    // Verify
-    let health = exec(&session, "curl -sf http://localhost:8080/health 2>/dev/null || echo FAIL").await?;
+    // Health check
+    let health = ssh_exec(&opts, "curl -sf http://localhost:8080/health 2>/dev/null || echo FAIL").await?;
     if health.contains("FAIL") {
-        bail!("Master não respondeu no health check");
+        bail!("Master não respondeu no health check. Verifique: journalctl -u pulse-master");
     }
 
-    tx.send(InstallEvent::Progress("✓ pulse-master rodando!".into())).await.ok();
-    tx.send(InstallEvent::Progress(format!("  URL: {master_url}"))).await.ok();
-    tx.send(InstallEvent::Progress(format!("  Admin token: {}...", &admin_token[..20.min(admin_token.len())])))
-        .await
-        .ok();
-
-    session.disconnect(Disconnect::ByApplication, "", "English").await.ok();
+    let master_url = format!("http://{}:8080", opts.host);
+    p(tx, &format!("✓ Master rodando em {master_url}")).await;
+    p(tx, &format!("  Admin: {}", &admin_token[..admin_token.len().min(16)])).await;
 
     Ok(InstallResult { admin_token, register_token, master_url })
 }
 
 async fn do_install_agent(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Result<InstallResult> {
-    let master_url = opts.master_url.as_deref().unwrap_or("http://localhost:8080");
+    let master_url = opts.master_url.as_deref().unwrap_or("");
     let register_token = opts.register_token.as_deref().unwrap_or("");
-
     if register_token.is_empty() {
-        bail!("Register token necessário para instalar agent");
+        bail!("Register token necessário. Instale o master primeiro.");
     }
 
-    let session = connect_ssh(&opts, tx).await?;
-    let arch = detect_arch(&session, tx).await?;
+    p(tx, "Testando conexão SSH...").await;
+    ssh_exec(&opts, "echo ok").await?;
+    p(tx, "✓ Conexão SSH OK").await;
 
-    // Download agent binary
-    let asset = github::asset_name("agent", &arch);
-    tx.send(InstallEvent::Progress(format!("Baixando {asset} do GitHub..."))).await.ok();
+    let arch = ssh_exec(&opts, "uname -m").await?.trim().to_string();
+    let arch_name = match arch.as_str() {
+        "x86_64" | "amd64" => "x86_64",
+        "aarch64" | "arm64" => "aarch64",
+        _ => bail!("Arch não suportada: {arch}"),
+    };
+    p(tx, &format!("  Arch: linux/{arch_name}")).await;
+
+    let asset = github::asset_name("agent", arch_name);
+    p(tx, &format!("Baixando {asset}...")).await;
     let (version, binary) = github::download_release_binary(&opts.github_token, &opts.github_repo, &asset).await?;
-    tx.send(InstallEvent::Progress(format!("✓ Download ({} MB, {version})", binary.len() / 1_048_576))).await.ok();
+    p(tx, &format!("✓ Download ({:.1} MB, {version})", binary.len() as f64 / 1_048_576.0)).await;
 
-    // Upload
-    upload_binary(&session, &binary, "/usr/local/bin/pulse-agent", tx).await?;
+    let tmp_local = format!("/tmp/pulse-agent-upload-{}", std::process::id());
+    tokio::fs::write(&tmp_local, &binary).await?;
+    p(tx, "Uploading...").await;
+    scp_upload(&opts, &tmp_local, "/tmp/pulse-agent-upload").await?;
+    tokio::fs::remove_file(&tmp_local).await.ok();
+    ssh_exec(
+        &opts,
+        "sudo mv /tmp/pulse-agent-upload /usr/local/bin/pulse-agent && sudo chmod +x /usr/local/bin/pulse-agent",
+    )
+    .await?;
+    p(tx, "✓ Upload completo").await;
 
-    // Create config
-    // Convert HTTP master URL to gRPC endpoint (https for TLS bootstrap)
-    let grpc_endpoint = master_url.replace("http://", "https://").replace(":8080", ":50051");
-    let config_toml = format!(
-        "master_endpoint = \"{grpc_endpoint}\"\nmetrics_interval_ms = 10000\nauth_token = \"{register_token}\"\n"
-    );
+    // Config
+    let grpc = master_url.replace("http://", "https://").replace(":8080", ":50051");
+    let config =
+        format!("master_endpoint = \\\"{grpc}\\\"\nmetrics_interval_ms = 10000\nauth_token = \\\"{register_token}\\\"");
+    ssh_exec(&opts, "sudo mkdir -p /etc/pulse").await?;
+    ssh_exec(&opts, &format!("printf '{config}' | sudo tee /etc/pulse/agent.toml > /dev/null")).await?;
 
-    exec(&session, "sudo mkdir -p /etc/pulse").await?;
-    exec(&session, &format!("echo '{config_toml}' | sudo tee /etc/pulse/agent.toml > /dev/null")).await?;
+    let unit = "[Unit]\nDescription=Vixpi Pulse Agent\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-agent /etc/pulse/agent.toml\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/etc/pulse /var/lib/pulse\n\n[Install]\nWantedBy=multi-user.target";
+    ssh_exec(&opts, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-agent.service > /dev/null")).await?;
+    ssh_exec(&opts, "sudo systemctl daemon-reload && sudo systemctl enable --now pulse-agent").await?;
 
-    // Systemd service
-    let unit = r#"[Unit]
-Description=Vixpi Pulse Agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/pulse-agent /etc/pulse/agent.toml
-Restart=always
-RestartSec=5
-Environment=RUST_LOG=info
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/etc/pulse /var/lib/pulse
-
-[Install]
-WantedBy=multi-user.target"#;
-
-    tx.send(InstallEvent::Progress("Criando serviço systemd...".into())).await.ok();
-    exec(&session, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-agent.service > /dev/null")).await?;
-    exec(&session, "sudo systemctl daemon-reload").await?;
-    exec(&session, "sudo systemctl enable --now pulse-agent").await?;
-
-    tx.send(InstallEvent::Progress("✓ pulse-agent rodando!".into())).await.ok();
-    tx.send(InstallEvent::Progress(format!("  Conectando a: {grpc_endpoint}"))).await.ok();
-
-    session.disconnect(Disconnect::ByApplication, "", "English").await.ok();
+    p(tx, "✓ pulse-agent iniciado").await;
+    p(tx, &format!("  Conectando a: {grpc}")).await;
 
     Ok(InstallResult {
         admin_token: String::new(),
@@ -200,105 +182,48 @@ WantedBy=multi-user.target"#;
     })
 }
 
-// ─── SSH Helpers ──────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────
 
-async fn connect_ssh(opts: &InstallOpts, tx: &mpsc::Sender<InstallEvent>) -> Result<client::Handle<SshHandler>> {
-    tx.send(InstallEvent::Progress(format!("Conectando {}@{}:{}...", opts.user, opts.host, opts.port))).await.ok();
+async fn p(tx: &mpsc::Sender<InstallEvent>, msg: &str) {
+    tx.send(InstallEvent::Progress(msg.to_string())).await.ok();
+}
 
-    let config = Arc::new(client::Config::default());
-    let mut session = client::connect(config, (&*opts.host, opts.port), SshHandler).await?;
+/// Execute a command on the remote server using the system's `ssh` binary.
+/// This respects ~/.ssh/config, Keychain, ssh-agent, ProxyJump, etc.
+async fn ssh_exec(opts: &InstallOpts, cmd: &str) -> Result<String> {
+    let mut args = opts.ssh_args();
+    args.push(opts.dest());
+    args.push(cmd.into());
 
-    match &opts.auth {
-        SshAuth::Password(password) => {
-            tx.send(InstallEvent::Progress("  Auth: password".into())).await.ok();
-            let auth = session.authenticate_password(&opts.user, password).await?;
-            if !auth {
-                bail!("Autenticação por senha falhou");
-            }
-        }
-        SshAuth::Key(key_path) => {
-            tx.send(InstallEvent::Progress(format!("  Key: {key_path}"))).await.ok();
-            match russh::keys::load_secret_key(key_path, None) {
-                Ok(key) => {
-                    let auth = session.authenticate_publickey(&opts.user, Arc::new(key)).await?;
-                    if !auth {
-                        bail!("Key rejeitada pelo servidor. Verifique se está autorizada em ~/.ssh/authorized_keys.");
-                    }
-                }
-                Err(_) => {
-                    bail!(
-                        "Key encriptada com passphrase.\n\
-                         Opções:\n\
-                         • Informe a passphrase no campo Secret e tente novamente\n\
-                         • Ou rode 'ssh-add' no terminal antes de usar o Pulse"
-                    );
-                }
-            }
-        }
-        SshAuth::KeyWithPassphrase(key_path, passphrase) => {
-            tx.send(InstallEvent::Progress(format!("  Key: {key_path} (com passphrase)")).into()).await.ok();
-            let key = russh::keys::load_secret_key(key_path, Some(passphrase))?;
-            let auth = session.authenticate_publickey(&opts.user, Arc::new(key)).await?;
-            if !auth {
-                bail!("Autenticação por chave falhou");
-            }
-        }
+    let output = Command::new("ssh").args(&args).output().await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("SSH falhou: {}", stderr.trim());
     }
-
-    tx.send(InstallEvent::Progress("✓ Conectado via SSH".into())).await.ok();
-    Ok(session)
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-async fn detect_arch(session: &client::Handle<SshHandler>, tx: &mpsc::Sender<InstallEvent>) -> Result<String> {
-    let output = exec(session, "uname -m").await?;
-    let arch = match output.trim() {
-        "x86_64" | "amd64" => "x86_64",
-        "aarch64" | "arm64" => "aarch64",
-        other => bail!("Arch não suportada: {other}"),
-    };
-    tx.send(InstallEvent::Progress(format!("  Arch: linux/{arch}"))).await.ok();
-    Ok(arch.into())
-}
+/// Upload a file using the system's `scp` binary.
+async fn scp_upload(opts: &InstallOpts, local_path: &str, remote_path: &str) -> Result<()> {
+    let mut args = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".into(),
+        "-o".to_string(),
+        "BatchMode=yes".into(),
+        "-P".to_string(),
+        opts.port.to_string(),
+    ];
+    if let Some(ref key) = opts.key_file {
+        args.push("-i".into());
+        args.push(key.clone());
+    }
+    args.push(local_path.into());
+    args.push(format!("{}:{}", opts.dest(), remote_path));
 
-async fn upload_binary(
-    session: &client::Handle<SshHandler>,
-    data: &[u8],
-    remote_path: &str,
-    tx: &mpsc::Sender<InstallEvent>,
-) -> Result<()> {
-    tx.send(InstallEvent::Progress(format!("Uploading para {remote_path}..."))).await.ok();
-
-    // Write to /tmp first (no sudo needed), then sudo mv
-    let tmp = format!("/tmp/pulse-upload-{}", std::process::id());
-    let channel = session.channel_open_session().await?;
-    channel.request_subsystem(true, "sftp").await?;
-
-    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
-    let mut file = sftp.create(&tmp).await?;
-    use tokio::io::AsyncWriteExt;
-    file.write_all(data).await?;
-    file.shutdown().await?;
-    drop(sftp);
-
-    // Move to final path with sudo + chmod
-    exec(session, &format!("sudo mv {tmp} {remote_path} && sudo chmod +x {remote_path}")).await?;
-    tx.send(InstallEvent::Progress(format!("✓ Upload completo ({} MB)", data.len() / 1_048_576))).await.ok();
+    let output = Command::new("scp").args(&args).output().await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("SCP falhou: {}", stderr.trim());
+    }
     Ok(())
-}
-
-async fn exec(session: &client::Handle<SshHandler>, cmd: &str) -> Result<String> {
-    let mut channel = session.channel_open_session().await?;
-    channel.exec(true, cmd).await?;
-
-    let mut output = String::new();
-    loop {
-        let Some(msg) = channel.wait().await else { break };
-        match msg {
-            ChannelMsg::Data { ref data } => output.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExtendedData { ref data, .. } => output.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExitStatus { .. } => break,
-            _ => {}
-        }
-    }
-    Ok(output)
 }

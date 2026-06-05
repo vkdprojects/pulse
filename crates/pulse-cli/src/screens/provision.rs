@@ -160,23 +160,16 @@ impl ProvisionScreen {
         let auth_mode = self.fields[3].value.clone();
         let secret = self.fields[4].value.clone();
 
-        // Auth resolution:
-        // key + empty secret → try ssh-agent, then key file without passphrase
-        // key + secret looks like path → use that key file
-        // key + secret is text (no /) → treat as passphrase for default key
-        // password → password auth
-        let auth = if auth_mode == "key" {
-            if secret.is_empty() {
-                let default_key = crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default();
-                installer::SshAuth::Key(default_key)
-            } else if secret.contains('/') || secret.starts_with('~') {
-                installer::SshAuth::Key(secret)
-            } else {
-                let default_key = crate::ssh_config::find_default_keys().first().cloned().unwrap_or_default();
-                installer::SshAuth::KeyWithPassphrase(default_key, secret)
-            }
+        // Key file resolution:
+        // auth=key → secret is key path (or empty = ssh-agent handles it)
+        // auth=password → not used with native ssh (BatchMode=yes won't prompt)
+        let key_file = if auth_mode == "key" && !secret.is_empty() {
+            Some(secret)
+        } else if auth_mode == "key" {
+            // Try to find default key
+            crate::ssh_config::find_default_keys().first().cloned()
         } else {
-            installer::SshAuth::Password(secret)
+            None
         };
 
         let (tx, rx) = mpsc::channel(64);
@@ -188,7 +181,7 @@ impl ProvisionScreen {
             host,
             port,
             user,
-            auth,
+            key_file,
             github_token: self.github_token.clone(),
             github_repo: self.github_repo.clone(),
             master_url: if self.target == ProvisionTarget::Agent { Some(self.master_url.clone()) } else { None },
