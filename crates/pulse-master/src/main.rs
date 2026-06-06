@@ -3,7 +3,7 @@ use pulse_master::service::PulseService;
 use pulse_master::storage::Storage;
 use tokio::time::{Duration, interval};
 use tonic::transport::{Identity, Server, ServerTlsConfig};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
                 (true, regen_from_stale)
             }
             Err(e) => {
-                warn!(error = %e, "failed to generate TLS certs, running insecure");
+                error!(error = %e, "failed to generate TLS certs — running WITHOUT encryption. Set PULSE_TLS_DIR to a writable path or provide pre-generated certs.");
                 (false, false)
             }
         }

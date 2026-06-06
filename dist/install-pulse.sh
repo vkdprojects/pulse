@@ -110,9 +110,7 @@ download_binary() {
 
     name="pulse-${name}"
     local asset_name="${name}-linux-${arch}"
-
-    # Stop existing service before replacing binary (Text file busy prevention)
-    systemctl stop "${name}" 2>/dev/null || true
+    local tmp_bin="/tmp/${name}.$$"
 
     if [ -n "$GITHUB_TOKEN" ]; then
         # Private repo: use GitHub REST API to download release asset
@@ -131,7 +129,6 @@ download_binary() {
         fi
 
         # Two-step: get signed URL from 302, then download
-        # (curl won't forward Authorization to cross-origin redirects)
         local tmpurl="/tmp/.pulse_url_$$"
         curl -sI -H 'Accept: application/octet-stream' -H "Authorization: token ${GITHUB_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPO}/releases/assets/${asset_id}" | \
@@ -142,7 +139,7 @@ download_binary() {
             err "Não conseguiu obter URL de download do asset."
         fi
 
-        wget -q -O "${INSTALL_DIR}/${name}" -i "$tmpurl" || curl -sfL -o "${INSTALL_DIR}/${name}" "$(cat "$tmpurl")" || err "Download do binário falhou."
+        wget -q -O "$tmp_bin" -i "$tmpurl" || curl -sfL -o "$tmp_bin" "$(cat "$tmpurl")" || { rm -f "$tmpurl" "$tmp_bin"; err "Download do binário falhou."; }
         rm -f "$tmpurl"
     else
         # Public repo: direct download
@@ -154,10 +151,23 @@ download_binary() {
         fi
 
         info "Baixando ${name} (${arch})..."
-        curl -sfL -o "${INSTALL_DIR}/${name}" "$url" || err "Download falhou. Se repo privado, passe GITHUB_TOKEN."
+        curl -sfL -o "$tmp_bin" "$url" || { rm -f "$tmp_bin"; err "Download falhou. Se repo privado, passe GITHUB_TOKEN."; }
     fi
 
-    chmod +x "${INSTALL_DIR}/${name}"
+    # Validate binary (not an HTML error page)
+    local file_size
+    file_size=$(wc -c < "$tmp_bin" | tr -d ' ')
+    if [ "$file_size" -lt 1024 ]; then
+        rm -f "$tmp_bin"
+        err "Binário inválido (${file_size} bytes). Verifique VERSION=${VERSION} e que a release contém '${asset_name}'."
+    fi
+
+    # Stop service AFTER successful download (prevents leaving service down on failure)
+    systemctl stop "${name}" 2>/dev/null || true
+
+    # Atomic replace
+    chmod +x "$tmp_bin"
+    mv -f "$tmp_bin" "${INSTALL_DIR}/${name}"
     ok "Instalado: ${INSTALL_DIR}/${name} ($(du -h "${INSTALL_DIR}/${name}" | awk '{print $1}'))"
 }
 
@@ -260,13 +270,24 @@ install_agent() {
     # Stop existing service if updating
     systemctl stop pulse-agent 2>/dev/null || true
 
-    # Write config
+    # Write config — preserve existing [tls] section if present (from prior registration)
+    local tls_section=""
+    if [ -f "${CONFIG_DIR}/agent.toml" ]; then
+        tls_section=$(sed -n '/^\[tls\]/,$p' "${CONFIG_DIR}/agent.toml" 2>/dev/null) || true
+    fi
+
     cat > "${CONFIG_DIR}/agent.toml" <<EOF
 master_endpoint = "${PULSE_MASTER}"
 metrics_interval_ms = 10000
 auth_token = "${PULSE_TOKEN}"
 EOF
-    ok "Config: ${CONFIG_DIR}/agent.toml"
+
+    if [ -n "$tls_section" ]; then
+        printf "\n%s\n" "$tls_section" >> "${CONFIG_DIR}/agent.toml"
+        ok "Config atualizada (TLS preservado): ${CONFIG_DIR}/agent.toml"
+    else
+        ok "Config: ${CONFIG_DIR}/agent.toml"
+    fi
 
     # Create systemd service
     cat > /etc/systemd/system/pulse-agent.service <<EOF

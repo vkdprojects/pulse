@@ -50,6 +50,7 @@ pub fn router_full(
     // Public-ish routes (read access — optionally protected via PULSE_API_PUBLIC)
     let read_routes = Router::new()
         .route("/health", axum::routing::get(health))
+        .route("/api", axum::routing::get(api_discovery))
         .route("/api/ca", axum::routing::get(get_ca))
         .route("/api/overview", axum::routing::get(get_overview))
         .route("/api/agents", axum::routing::get(list_agents))
@@ -80,6 +81,38 @@ pub fn router_full(
 
 async fn health() -> Json<Value> {
     Json(json!({"status": "ok"}))
+}
+
+async fn api_discovery() -> Json<Value> {
+    Json(json!({
+        "name": "Vixpi Pulse",
+        "version": option_env!("PULSE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+        "endpoints": {
+            "health": "GET /health",
+            "discovery": "GET /api",
+            "ca_cert": "GET /api/ca",
+            "overview": "GET /api/overview",
+            "agents": "GET /api/agents",
+            "agent_metrics": "GET /api/agents/:id/metrics",
+            "agent_latest": "GET /api/agents/:id/metrics/latest",
+            "agent_disks": "GET /api/agents/:id/disks",
+            "agent_network": "GET /api/agents/:id/network",
+            "agent_containers": "GET /api/agents/:id/containers",
+            "agent_processes": "GET /api/agents/:id/processes",
+            "agent_gpu": "GET /api/agents/:id/gpu",
+            "agent_sessions": "GET /api/agents/:id/sessions",
+            "agent_connections": "GET /api/agents/:id/connections",
+            "alerts": "GET /api/alerts",
+            "rename_agent": "PUT /api/agents/:id/name [admin]",
+            "delete_agent": "DELETE /api/agents/:id [admin]",
+            "exec": "POST /api/agents/:id/exec [admin]",
+            "updates_check": "GET /api/updates/check?arch=&version=",
+            "updates_download": "GET /api/updates/download?version=&arch=",
+            "updates_upload": "POST /api/updates/upload [admin]",
+            "updates_rollout": "GET|POST /api/updates/rollout [admin]",
+            "register_token": "GET /api/register-token [admin]"
+        }
+    }))
 }
 
 async fn get_ca(State(state): State<AppState>) -> axum::response::Response {
@@ -171,14 +204,8 @@ async fn get_gpu(State(state): State<AppState>, Path(agent_id): Path<String>) ->
 }
 
 async fn get_sessions(State(state): State<AppState>, Path(agent_id): Path<String>) -> Json<Value> {
-    match state.storage.get_agent_info(&agent_id).await {
-        Ok(Some(r)) => Json(json!({
-            "agent_id": agent_id,
-            "hostname": r.0,
-            "status": r.1,
-            "last_seen": r.2,
-        })),
-        Ok(None) => Json(json!({"error": "agent not found"})),
+    match state.storage.get_agent_sessions(&agent_id).await {
+        Ok(sessions) => Json(json!({"agent_id": agent_id, "sessions": sessions})),
         Err(e) => Json(json!({"error": e.to_string()})),
     }
 }

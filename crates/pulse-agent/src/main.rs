@@ -4,7 +4,7 @@ mod telemetry;
 mod updater;
 mod worker;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use config::Config;
 use pulse_proto::pb::{CommandResponse, MetricsPayload, RegisterRequest, pulse_agent_client::PulseAgentClient};
 use std::collections::VecDeque;
@@ -51,8 +51,20 @@ async fn run_agent(config: Config) -> Result<()> {
         match result {
             Ok(()) => return Ok(()),
             Err(e) => {
+                // Permanent errors: don't retry, exit so systemd can alert operator
+                let err_str = format!("{e:#}");
+                if is_permanent_error(&err_str) {
+                    error!(error = %err_str, "fatal error (will not retry)");
+                    return Err(e);
+                }
                 let backoff = Duration::from_secs(backoff_secs);
-                error!(error = %e, buffer_size = buffer.len(), ?backoff, "connection lost, reconnecting");
+                error!(
+                    endpoint = %config.master_endpoint,
+                    error = %err_str,
+                    buffer_size = buffer.len(),
+                    ?backoff,
+                    "connection lost, reconnecting"
+                );
                 sleep(backoff).await;
                 backoff_secs = (backoff_secs * 2).min(60);
             }
@@ -60,7 +72,13 @@ async fn run_agent(config: Config) -> Result<()> {
     }
 }
 
+/// Errors that will never resolve without operator intervention
+fn is_permanent_error(err: &str) -> bool {
+    err.contains("Unauthenticated") || err.contains("invalid register token") || err.contains("CA pin mismatch")
+}
+
 async fn connect_and_stream(config: &Config, buffer: &mut VecDeque<MetricsPayload>) -> Result<()> {
+    info!(endpoint = %config.master_endpoint, "connecting to master...");
     let channel = build_channel(config).await?;
     let mut client = PulseAgentClient::new(channel);
 
@@ -225,23 +243,36 @@ async fn build_channel(config: &Config) -> Result<Channel> {
 
     if config.tls_enabled() {
         let tls = &config.tls;
-        let ca = tokio::fs::read_to_string(tls.ca_cert.as_ref().unwrap()).await?;
-        let cert = tokio::fs::read_to_string(tls.client_cert.as_ref().unwrap()).await?;
-        let key = tokio::fs::read_to_string(tls.client_key.as_ref().unwrap()).await?;
+        let ca_path = tls.ca_cert.as_ref().unwrap();
+        let cert_path = tls.client_cert.as_ref().unwrap();
+        let key_path = tls.client_key.as_ref().unwrap();
+        let ca = tokio::fs::read_to_string(ca_path).await.with_context(|| format!("reading CA cert: {ca_path}"))?;
+        let cert =
+            tokio::fs::read_to_string(cert_path).await.with_context(|| format!("reading client cert: {cert_path}"))?;
+        let key =
+            tokio::fs::read_to_string(key_path).await.with_context(|| format!("reading client key: {key_path}"))?;
 
         let tls_config = ClientTlsConfig::new()
             .domain_name(tls.domain_name.as_deref().unwrap_or("localhost"))
             .ca_certificate(Certificate::from_pem(&ca))
             .identity(Identity::from_pem(&cert, &key));
 
-        Ok(endpoint.tls_config(tls_config)?.connect().await?)
+        endpoint
+            .tls_config(tls_config)?
+            .connect()
+            .await
+            .with_context(|| format!("connecting to {} (mTLS)", config.master_endpoint))
     } else if config.master_endpoint.starts_with("https://") {
         // Bootstrap: fetch CA cert from master's HTTP API, validate CA pin, then connect
         let ca_pem = fetch_and_verify_ca(&config.master_endpoint, &config.auth_token).await?;
         let tls_config = ClientTlsConfig::new().domain_name("localhost").ca_certificate(Certificate::from_pem(&ca_pem));
-        Ok(endpoint.tls_config(tls_config)?.connect().await?)
+        endpoint
+            .tls_config(tls_config)?
+            .connect()
+            .await
+            .with_context(|| format!("connecting to {} (TLS bootstrap)", config.master_endpoint))
     } else {
-        Ok(endpoint.connect().await?)
+        endpoint.connect().await.with_context(|| format!("connecting to {}", config.master_endpoint))
     }
 }
 

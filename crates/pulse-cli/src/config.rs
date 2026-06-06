@@ -71,7 +71,7 @@ impl Config {
     }
 
     pub fn is_first_run(&self) -> bool {
-        self.github_token.is_none()
+        self.github_token.is_none() && self.masters.is_empty()
     }
 
     pub fn repo(&self) -> &str {
@@ -188,5 +188,32 @@ url = "http://staging:8080"
     fn test_current_master_none() {
         let cfg = Config::default();
         assert!(cfg.current_master().is_none());
+    }
+
+    /// Reproduces: user skipped setup (Esc), then added master via CLI arg.
+    /// Config saved without github_token. Next launch must NOT show setup again.
+    #[test]
+    fn test_is_first_run_false_when_masters_exist_without_token() {
+        let toml_str = r#"
+current_context = "prod"
+
+[preferences]
+refresh_rate_secs = 5
+theme = "default"
+
+[[masters]]
+name = "prod"
+url = "http://prod:8080"
+admin_token = "secret"
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert!(cfg.github_token.is_none());
+        assert!(!cfg.is_first_run(), "must not trigger setup when masters already configured");
+    }
+
+    #[test]
+    fn test_is_first_run_true_when_empty() {
+        let cfg = Config::default();
+        assert!(cfg.is_first_run(), "fresh config with no token and no masters = first run");
     }
 }

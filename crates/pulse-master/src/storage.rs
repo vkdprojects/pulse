@@ -709,6 +709,41 @@ impl Storage {
         }
     }
 
+    pub async fn get_agent_sessions(&self, agent_id: &str) -> Result<Vec<serde_json::Value>> {
+        match self {
+            Storage::Postgres(pool) => {
+                let rows: Vec<(String, String, String, i32)> = sqlx::query_as(
+                    "SELECT username, remote_ip, tty, pid FROM ssh_sessions
+                     WHERE agent_id = $1 AND time = (SELECT MAX(time) FROM ssh_sessions WHERE agent_id = $1)",
+                )
+                .bind(agent_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows
+                    .iter()
+                    .map(|(user, ip, tty, pid)| {
+                        serde_json::json!({"user": user, "remote_ip": ip, "tty": tty, "pid": pid})
+                    })
+                    .collect())
+            }
+            Storage::Sqlite(pool) => {
+                let rows: Vec<(String, String, String, i32)> = sqlx::query_as(
+                    "SELECT username, remote_ip, tty, pid FROM ssh_sessions
+                     WHERE agent_id = $1 AND time = (SELECT MAX(time) FROM ssh_sessions WHERE agent_id = $1)",
+                )
+                .bind(agent_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows
+                    .iter()
+                    .map(|(user, ip, tty, pid)| {
+                        serde_json::json!({"user": user, "remote_ip": ip, "tty": tty, "pid": pid})
+                    })
+                    .collect())
+            }
+        }
+    }
+
     pub async fn get_agent_connections(&self, agent_id: &str) -> Result<Vec<serde_json::Value>> {
         match self {
             Storage::Postgres(pool) => {
