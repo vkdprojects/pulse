@@ -1,7 +1,7 @@
 # Admin Panel & Service API — Design Document
 
-> Status: **Proposal / awaiting approval.** No application code has been scaffolded yet.
-> This document captures the agreed architecture so implementation can start from a shared plan.
+> Status: **M0 scaffolded.** The `cloud/` workspace exists and is green (lint + typecheck +
+> tests). This document captures the agreed architecture; milestones (§16) track progress.
 
 ## 1. Motivation
 
@@ -53,7 +53,7 @@ split into two apps + a shared package:
   └───────────────┬───────────────────────────────┬────────────────────┘
                   │ Bearer PULSE_ADMIN_TOKEN       │
                   ▼                                ▼
-          pulse-master REST :8080          bun:sqlite + Drizzle
+          pulse-master REST :8080          Postgres + Drizzle
         (per tenant — see §4)          (auth, orgs, webhooks, audit)
 ```
 
@@ -75,7 +75,7 @@ SaaS. All auth data stays in our own database. Deliberate rejection of Clerk/Aut
 
 | Concern       | Choice                          | Rationale                                                  |
 |---------------|---------------------------------|------------------------------------------------------------|
-| Runtime       | **Bun**                         | Fast, native `bun:sqlite`, single toolchain for both apps  |
+| Runtime       | **Bun**                         | Fast, single toolchain for both apps                       |
 | API framework | **Elysia**                      | Bun-native; end-to-end typed; TypeBox validation + Swagger built into the route definitions |
 | Validation    | **TypeBox** (Elysia `t`)        | One schema drives runtime validation, TS types, and OpenAPI |
 | API docs      | **@elysiajs/swagger**           | OpenAPI/Swagger generated from the route schemas — always in sync |
@@ -84,7 +84,7 @@ SaaS. All auth data stays in our own database. Deliberate rejection of Clerk/Aut
 | Styling       | **Tailwind CSS**                | Utility-first; 100% responsive, modern, consistent design tokens |
 | Lint/format   | **BiomeJS**                     | Single fast tool, no ESLint+Prettier sprawl                |
 | Auth          | **better-auth**                 | Self-hosted; email/password, sessions, plus `organization`, `admin`, `apiKey` plugins for tenancy/RBAC/programmatic access |
-| App DB        | **bun:sqlite** (+ Drizzle)      | Backs better-auth + orgs/webhooks/audit; embedded, no server |
+| App DB        | **Postgres** (Drizzle, postgres.js) | Backs better-auth + orgs/webhooks/audit; same engine family as the master's TimescaleDB. PGlite for tests |
 | Charts        | **uPlot**                       | ~40 KB, built for time series; matches the lean ethos      |
 
 Dependency discipline mirrors the Rust side: add a dependency only with justification.
@@ -299,7 +299,7 @@ own package so nothing is duplicated across apps.
   never duplicate it.
 - **`packages/contracts`** is the single source of truth for request/response types and the
   typed API client, so `server` and `web` can never drift.
-- `node_modules` and local SQLite files added to `.gitignore`.
+- `node_modules`, build output and `.env` files added to `.gitignore`.
 
 ### When to split into a separate repo
 
@@ -315,7 +315,7 @@ Until one of those holds, the isolated monorepo is the more productive setup.
 
 ```
 # cloud/apps/server
-APP_DB_PATH=./pulse-panel.sqlite      # bun:sqlite (better-auth + orgs + webhooks + audit) — packages/db
+DATABASE_URL=postgres://pulse:pulse@localhost:5432/pulse  # Postgres for better-auth + orgs + webhooks + audit — packages/db
 BETTER_AUTH_SECRET=...                # better-auth signing secret
 BETTER_AUTH_URL=http://localhost:3000 # API origin
 CORS_ORIGINS=http://localhost:5173    # allow-list for the UI
@@ -350,10 +350,11 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
 
 ## 16. Proposed milestones
 
-- **M0** — Scaffold the `cloud/` Bun workspace: `apps/server` (Elysia + Biome + Swagger
-  skeleton), `apps/web` (SvelteKit + Bits UI + Tailwind + hooks/stores layout), and
-  `packages/{db,auth,contracts}`. Health checks, per-org master client, isolated `cloud/**`
-  CI job. Structure/DX conventions (§7) in place. (Awaiting go-ahead.)
+- **M0 — done.** Scaffolded the `cloud/` Bun workspace: `apps/server` (Elysia + Swagger at
+  `/docs` + CORS + security headers + `/health` + `/v1`), `apps/web` (SvelteKit + Tailwind 4
+  + hooks/stores + typed client), and `packages/{db,auth,contracts}`. better-auth wired
+  (organization + admin plugins), per-org master client, 20 tests, Biome + TS strict green,
+  isolated `cloud/**` CI job.
 - **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
   login/logout, session + org middleware, API keys.
 - **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
