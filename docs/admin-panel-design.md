@@ -32,13 +32,14 @@ Adding accounts, sessions, RBAC, tenancy and webhooks to it would betray that de
 Instead, all of that lives in a TypeScript layer under a single `cloud/` Bun workspace (§12),
 split into two apps + a shared package:
 
-- **`cloud/apps/api` — Elysia (Bun):** the product API and gateway. Owns auth, input
+- **`cloud/apps/server` — Elysia (Bun):** the product API and gateway. Owns input
   validation, Swagger docs, security middleware, webhook subscriptions + dispatch, and the
   only client that talks to `pulse-master` (holding its admin token). The sellable, documented
   surface.
-- **`cloud/apps/panel` — SvelteKit (Bun):** the web UI. Consumes the API; holds no secrets.
-- **`cloud/packages/contracts`:** shared request/response types + typed SDK, so API and panel
-  never drift.
+- **`cloud/apps/web` — SvelteKit (Bun):** the web UI. Consumes the API; holds no secrets.
+- **`cloud/packages/{db,auth,contracts}`:** shared database (Drizzle schema/migrations/client),
+  better-auth config, and request/response types + typed SDK — so the two apps never duplicate
+  or drift.
 
 ```
   Browser (SvelteKit UI)
@@ -110,8 +111,8 @@ Built org-scoped from day one so no retrofit is ever needed.
 
 ## 5. Authentication & authorization
 
-Auth is handled by **better-auth**, mounted inside the Elysia API (`/api/auth/*`) against the
-app DB via its Drizzle adapter. The SvelteKit UI uses the better-auth client against that
+Auth is handled by **better-auth** (config in `packages/auth`, schema in `packages/db`),
+mounted inside the Elysia API (`/api/auth/*`). The SvelteKit UI uses the better-auth client against that
 same origin.
 
 - **Providers:** email & password to start. Social/SSO later via better-auth providers if
@@ -249,24 +250,25 @@ TypeScript lives under a single top-level **`cloud/`** directory, which is **one
 workspace** — kept isolated so the whole thing is one clean `git subtree split --prefix=cloud`
 away from becoming its own repo when a trigger appears (§ below).
 
+Convention: **Rust in `crates/`** (root), **all TypeScript in `cloud/`** split into runnable
+`apps/*` and shared `packages/*` — every cross-cutting concern (db, contracts, auth) is its
+own package so nothing is duplicated across apps.
+
 ```
 /  (repo root = Cargo workspace, unchanged)
-├── Cargo.toml, crates/, migrations/, docker/ ...
+├── Cargo.toml, crates/, migrations/, docker/ ...   # all Rust stays in crates/
 └── cloud/                      # 1 Bun workspace · 1 extractable subtree
     ├── package.json            # { "workspaces": ["apps/*", "packages/*"] }
     ├── biome.json              # shared lint/format config for the whole TS side
     ├── apps/
-    │   ├── api/                # Elysia + Bun — the service API
+    │   ├── server/             # Elysia + Bun — the service API
     │   │   ├── package.json
-    │   │   ├── drizzle/        # app DB schema + migrations (better-auth, orgs, webhooks, audit)
     │   │   └── src/
     │   │       ├── index.ts    # Elysia app: swagger, cors, rate-limit, security headers
-    │   │       ├── auth.ts     # better-auth (Drizzle adapter, org/admin/apiKey plugins)
-    │   │       ├── db.ts       # bun:sqlite + Drizzle
     │   │       ├── master.ts   # per-org pulse-master REST client
     │   │       ├── routes/     # v1: servers, metrics, alerts, webhooks, auth mount
     │   │       └── webhooks/   # subscription matching + signed dispatch + delivery log
-    │   └── panel/              # SvelteKit + Bun — the web UI (consumes apps/api)
+    │   └── web/                # SvelteKit + Bun — the web UI (consumes apps/server)
     │       ├── package.json
     │       ├── tailwind.config.ts
     │       └── src/
@@ -279,17 +281,24 @@ away from becoming its own repo when a trigger appears (§ below).
     │           │   └── stores/     # shared reactive state (one source of truth)
     │           └── routes/         # login, fleet, agent detail, add-server, alerts, webhooks
     └── packages/
-        └── contracts/         # shared types + typed SDK derived from Elysia/OpenAPI
-                               #   (consumed by both apps/api and apps/panel)
+        ├── db/                 # ALL database code: Drizzle schema + migrations + client
+        │                       #   (better-auth tables, orgs, webhooks, audit). One source of truth.
+        ├── auth/               # better-auth config: server instance + client (org/admin/apiKey)
+        └── contracts/          # shared types + typed SDK derived from Elysia/OpenAPI
+                                #   (consumed by both apps/server and apps/web)
 ```
 
 - **Root stays Rust.** `cloud/` is out of the Cargo workspace and Rust CI; it has its own
   Bun-based lint/test/build CI job, gated by a `cloud/**` path filter.
-- **Bun workspaces (not Turborepo yet).** Native workspace linking is enough for two apps +
-  one shared package. Turbo/Nx is deferred until the TS side grows to several packages **and**
-  CI task-caching pays off — and even then it would be scoped inside `cloud/`, never at root.
+- **Bun workspaces (not Turborepo yet).** Native workspace linking is enough at this size.
+  Turbo/Nx is deferred until the TS side grows further **and** CI task-caching pays off — and
+  even then it would be scoped inside `cloud/`, never at root.
+- **`packages/db`** owns all schema/migrations/client, so `server` (and any future worker,
+  seed or script) share one source of truth for the database.
+- **`packages/auth`** centralizes the better-auth config (server + client) so web and server
+  never duplicate it.
 - **`packages/contracts`** is the single source of truth for request/response types and the
-  typed API client, so `api` and `panel` can never drift.
+  typed API client, so `server` and `web` can never drift.
 - `node_modules` and local SQLite files added to `.gitignore`.
 
 ### When to split into a separate repo
@@ -305,8 +314,8 @@ Until one of those holds, the isolated monorepo is the more productive setup.
 ## 13. Configuration (env)
 
 ```
-# cloud/apps/api
-APP_DB_PATH=./pulse-panel.sqlite      # bun:sqlite (better-auth + orgs + webhooks + audit)
+# cloud/apps/server
+APP_DB_PATH=./pulse-panel.sqlite      # bun:sqlite (better-auth + orgs + webhooks + audit) — packages/db
 BETTER_AUTH_SECRET=...                # better-auth signing secret
 BETTER_AUTH_URL=http://localhost:3000 # API origin
 CORS_ORIGINS=http://localhost:5173    # allow-list for the UI
@@ -314,7 +323,7 @@ ALERT_INGEST_SECRET=...               # shared secret for POST /v1/internal/aler
 # Per-org master URL + admin token live in the DB (organizations table), not in env.
 # A single bootstrap master (URL + token) may be set here only for local dev.
 
-# cloud/apps/panel
+# cloud/apps/web
 PUBLIC_API_URL=http://localhost:3000  # base URL of the API
 ```
 
@@ -341,10 +350,10 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
 
 ## 16. Proposed milestones
 
-- **M0** — Scaffold the `cloud/` Bun workspace: `apps/api` (Elysia + Biome + Swagger
-  skeleton), `apps/panel` (SvelteKit + Bits UI + Tailwind + hooks/stores layout), and
-  `packages/contracts` (shared types + typed client). Health checks, per-org master client,
-  isolated `cloud/**` CI job. Structure/DX conventions (§7) in place. (Awaiting go-ahead.)
+- **M0** — Scaffold the `cloud/` Bun workspace: `apps/server` (Elysia + Biome + Swagger
+  skeleton), `apps/web` (SvelteKit + Bits UI + Tailwind + hooks/stores layout), and
+  `packages/{db,auth,contracts}`. Health checks, per-org master client, isolated `cloud/**`
+  CI job. Structure/DX conventions (§7) in place. (Awaiting go-ahead.)
 - **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
   login/logout, session + org middleware, API keys.
 - **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
