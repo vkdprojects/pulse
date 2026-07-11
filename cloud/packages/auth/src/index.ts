@@ -2,6 +2,7 @@ import type { Db } from '@vixpi/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin, organization } from 'better-auth/plugins';
+import { ac, roles } from './permissions';
 
 export interface AuthConfig {
   db: Db;
@@ -17,9 +18,9 @@ export interface AuthConfig {
 
 /**
  * The better-auth server instance. Multi-tenant SaaS: email/password + the `organization`
- * and `admin` plugins (owner/admin/viewer roles). Schema lives in `@vixpi/db`.
- * See docs/admin-panel-design.md §5. (Per-org API keys land with the `apiKey` plugin once we
- * move to a better-auth version that ships it.)
+ * (owner/admin/viewer roles via access control) and `admin` plugins. Each org carries its
+ * pulse-master routing (`masterUrl` / `masterAdminToken`), set server-side only.
+ * Schema lives in `@vixpi/db`. See docs/admin-panel-design.md §5.
  */
 export function createAuth(config: AuthConfig) {
   return betterAuth({
@@ -31,8 +32,28 @@ export function createAuth(config: AuthConfig) {
       enabled: true,
       disableSignUp: config.allowSignUp === false,
     },
-    plugins: [organization(), admin()],
+    plugins: [
+      organization({
+        ac,
+        roles,
+        creatorRole: 'owner',
+        schema: {
+          organization: {
+            additionalFields: {
+              // Per-tenant master routing. `input: false` → never set by the client; assigned
+              // server-side during org→master provisioning (design §4/§15).
+              masterUrl: { type: 'string', required: false, input: false },
+              masterAdminToken: { type: 'string', required: false, input: false },
+            },
+          },
+        },
+      }),
+      admin(),
+    ],
   });
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+export type { OrgRole } from './permissions';
+export { ac, admin as adminRole, owner, roles, viewer } from './permissions';

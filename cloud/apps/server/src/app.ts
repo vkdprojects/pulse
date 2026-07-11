@@ -2,10 +2,13 @@ import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
 import type { Auth } from '@vixpi/auth';
 import { HealthResponse } from '@vixpi/contracts';
+import type { Db } from '@vixpi/db';
 import { Elysia } from 'elysia';
+import { resolveAuth, resolveOrg } from './context';
 
 export interface AppDeps {
   auth: Auth;
+  db: Db;
   corsOrigins: string[];
   version?: string;
 }
@@ -42,16 +45,32 @@ export function createApp(deps: AppDeps) {
           },
         }),
       )
-      // better-auth owns everything under /api/auth/* (login, org, api-keys…)
+      // better-auth owns everything under /api/auth/* (login, org, members…)
       .all('/api/auth/*', ({ request }) => deps.auth.handler(request))
       .get('/health', () => ({ status: 'ok' as const, service: SERVICE, version }), {
         response: HealthResponse,
         detail: { tags: ['meta'], summary: 'Liveness probe' },
       })
-      .group('/v1', (app) =>
-        app.get('/', () => ({ message: 'Vixpi Pulse API v1' }), {
-          detail: { tags: ['meta'], summary: 'API v1 root' },
-        }),
+      .group('/v1', (v1) =>
+        v1
+          .get('/', () => ({ message: 'Vixpi Pulse API v1' }), {
+            detail: { tags: ['meta'], summary: 'API v1 root' },
+          })
+          .get(
+            '/me',
+            async ({ request, set }) => {
+              const ctx = await resolveAuth(deps.auth, request.headers);
+              if (!ctx) {
+                set.status = 401;
+                return { error: { code: 'unauthorized', message: 'Not authenticated' } };
+              }
+              const org = ctx.activeOrgId
+                ? await resolveOrg(deps.db, ctx.user.id, ctx.activeOrgId)
+                : null;
+              return { user: ctx.user, org };
+            },
+            { detail: { tags: ['auth'], summary: 'Current user and active organization' } },
+          ),
       )
   );
 }

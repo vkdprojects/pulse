@@ -12,6 +12,7 @@
       "!**/.svelte-kit",
       "!**/build",
       "!**/drizzle",
+      "!**/auth-schema.ts",
       "!**/*.svelte",
       "!**/*.css",
       "!**/*.gen.ts"

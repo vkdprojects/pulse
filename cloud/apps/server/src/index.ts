@@ -15,6 +15,7 @@ const auth = createAuth({
 
 const app = createApp({
   auth,
+  db,
   corsOrigins: env.corsOrigins,
   version: process.env.PULSE_VERSION ?? '0.1.0',
 });

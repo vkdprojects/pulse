@@ -1,6 +1,6 @@
 import type { Static, TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import { ErrorResponse, HealthResponse } from './schemas';
+import { ErrorResponse, HealthResponse, MeResponse } from './schemas';
 
 /** Minimal fetch signature — satisfied by the global `fetch` and by test mocks alike. */
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -57,6 +57,8 @@ export function createApiClient(options: ApiClientOptions) {
   return {
     request,
     health: () => request('/health', HealthResponse),
+    /** Current user + active org. Throws ApiError(401) when unauthenticated. */
+    me: () => request('/v1/me', MeResponse),
   };
 }
 

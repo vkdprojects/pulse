@@ -35,3 +35,26 @@ export const CreateOrganizationBody = Type.Object({
   slug: Type.String({ minLength: 1, maxLength: 60, pattern: '^[a-z0-9-]+$' }),
 });
 export type CreateOrganizationBody = Static<typeof CreateOrganizationBody>;
+
+export const SessionUser = Type.Object({
+  id: Type.String(),
+  email: Type.String(),
+  name: Type.String(),
+});
+export type SessionUser = Static<typeof SessionUser>;
+
+export const OrgSummary = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  slug: Type.String(),
+  /** Caller's role in the org: owner | admin | viewer (null if not a member). */
+  role: Type.Union([Type.String(), Type.Null()]),
+  hasMaster: Type.Boolean(),
+});
+export type OrgSummary = Static<typeof OrgSummary>;
+
+export const MeResponse = Type.Object({
+  user: SessionUser,
+  org: Type.Union([OrgSummary, Type.Null()]),
+});
+export type MeResponse = Static<typeof MeResponse>;

@@ -1,17 +1,11 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { organization, user } from './auth-schema';
 
-/**
- * A tenant. Each org routes to its own pulse-master (SaaS isolation model), so the master
- * URL + admin token live on the org record — never in shared env. See docs/admin-panel-design.md §4.
- */
-export const organizations = pgTable('organizations', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  masterUrl: text('master_url'),
-  masterAdminToken: text('master_admin_token'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+// better-auth owns user / session / account / verification / organization / member / invitation
+// (generated in auth-schema.ts). The `organization` table is the tenant and carries per-org
+// master routing (masterUrl / masterAdminToken). Everything below is control-plane domain data
+// keyed to that org.
+export * from './auth-schema';
 
 export type WebhookScope = 'org' | 'server' | 'user';
 
@@ -22,7 +16,7 @@ export const webhookSubscriptions = pgTable(
     id: text('id').primaryKey(),
     orgId: text('org_id')
       .notNull()
-      .references(() => organizations.id, { onDelete: 'cascade' }),
+      .references(() => organization.id, { onDelete: 'cascade' }),
     scope: text('scope').$type<WebhookScope>().notNull(),
     /** agent id for scope=server, user id for scope=user, null for scope=org. */
     target: text('target'),
@@ -31,7 +25,7 @@ export const webhookSubscriptions = pgTable(
     secret: text('secret').notNull(),
     events: jsonb('events').$type<string[]>().notNull(),
     active: boolean('active').notNull().default(true),
-    createdBy: text('created_by').notNull(),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('idx_webhook_subs_org').on(t.orgId)],
@@ -49,7 +43,7 @@ export const webhookDeliveries = pgTable(
       .references(() => webhookSubscriptions.id, { onDelete: 'cascade' }),
     orgId: text('org_id')
       .notNull()
-      .references(() => organizations.id, { onDelete: 'cascade' }),
+      .references(() => organization.id, { onDelete: 'cascade' }),
     event: text('event').notNull(),
     status: text('status').$type<WebhookDeliveryStatus>().notNull().default('pending'),
     attempts: integer('attempts').notNull().default(0),
@@ -67,8 +61,8 @@ export const auditLog = pgTable(
     id: text('id').primaryKey(),
     orgId: text('org_id')
       .notNull()
-      .references(() => organizations.id, { onDelete: 'cascade' }),
-    actorId: text('actor_id').notNull(),
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id').references(() => user.id, { onDelete: 'set null' }),
     action: text('action').notNull(),
     targetType: text('target_type'),
     targetId: text('target_id'),
@@ -78,8 +72,8 @@ export const auditLog = pgTable(
   (t) => [index('idx_audit_org').on(t.orgId)],
 );
 
-export type Organization = typeof organizations.$inferSelect;
-export type NewOrganization = typeof organizations.$inferInsert;
+export type Organization = typeof organization.$inferSelect;
+export type User = typeof user.$inferSelect;
 export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect;
 export type NewWebhookSubscription = typeof webhookSubscriptions.$inferInsert;
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;

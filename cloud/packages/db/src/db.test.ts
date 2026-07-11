@@ -1,30 +1,30 @@
 import { eq } from 'drizzle-orm';
 import { expect, test } from 'vitest';
-import { organizations, webhookSubscriptions } from './schema';
+import { organization, user, webhookSubscriptions } from './schema';
 import { createTestDb } from './testing';
 
-test('organizations round-trip with defaults', async () => {
+test('organization round-trip with null master routing by default', async () => {
   const { db } = await createTestDb();
 
-  await db.insert(organizations).values({
-    id: 'org_1',
-    name: 'Acme',
-    slug: 'acme',
-    masterUrl: 'http://master:8080',
-  });
+  await db
+    .insert(organization)
+    .values({ id: 'org_1', name: 'Acme', slug: 'acme', createdAt: new Date() });
 
-  const rows = await db.select().from(organizations).where(eq(organizations.slug, 'acme'));
+  const rows = await db.select().from(organization).where(eq(organization.slug, 'acme'));
 
   expect(rows).toHaveLength(1);
   expect(rows[0]?.name).toBe('Acme');
+  expect(rows[0]?.masterUrl).toBeNull();
   expect(rows[0]?.masterAdminToken).toBeNull();
-  expect(rows[0]?.createdAt).toBeInstanceOf(Date);
 });
 
-test('webhook subscription stores typed scope and json events', async () => {
+test('webhook subscription references org + creator and stores typed scope/events', async () => {
   const { db } = await createTestDb();
 
-  await db.insert(organizations).values({ id: 'org_2', name: 'Beta', slug: 'beta' });
+  await db.insert(user).values({ id: 'user_1', name: 'Ada', email: 'ada@example.com' });
+  await db
+    .insert(organization)
+    .values({ id: 'org_2', name: 'Beta', slug: 'beta', createdAt: new Date() });
   await db.insert(webhookSubscriptions).values({
     id: 'wh_1',
     orgId: 'org_2',
@@ -41,4 +41,5 @@ test('webhook subscription stores typed scope and json events', async () => {
   expect(sub?.scope).toBe('server');
   expect(sub?.events).toEqual(['alert.cpu', 'alert.mem']);
   expect(sub?.active).toBe(true);
+  expect(sub?.createdBy).toBe('user_1');
 });

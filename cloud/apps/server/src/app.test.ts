@@ -11,7 +11,7 @@ function makeApp() {
     baseUrl: 'http://localhost:3000',
     trustedOrigins: ['http://localhost:5173'],
   });
-  return createApp({ auth, corsOrigins: ['http://localhost:5173'], version: '9.9.9' });
+  return createApp({ auth, db, corsOrigins: ['http://localhost:5173'], version: '9.9.9' });
 }
 
 test('GET /health returns ok with security headers', async () => {

@@ -1,7 +1,8 @@
 # Admin Panel & Service API — Design Document
 
-> Status: **M0 scaffolded.** The `cloud/` workspace exists and is green (lint + typecheck +
-> tests). This document captures the agreed architecture; milestones (§16) track progress.
+> Status: **M0 + M1 done.** The `cloud/` workspace is green (lint + typecheck + 26 tests);
+> auth + multi-tenancy work end-to-end. This document captures the agreed architecture;
+> milestones (§16) track progress.
 
 ## 1. Motivation
 
@@ -355,8 +356,12 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
   + hooks/stores + typed client), and `packages/{db,auth,contracts}`. better-auth wired
   (organization + admin plugins), per-org master client, 20 tests, Biome + TS strict green,
   isolated `cloud/**` CI job.
-- **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
-  login/logout, session + org middleware, API keys.
+- **M1 — done.** Auth + tenancy: better-auth email/password, `organization` plugin with
+  owner/admin/viewer roles (access control), per-org master routing fields, generated Drizzle
+  schema. API: session resolution + `/v1/me` (user + active org + role). Web: login / register
+  (sign-up creates an org, user becomes owner) / logout, session-aware home. Verified by
+  integration tests against real Postgres (PGlite): sign-up → org(owner) → session, and the
+  same flow end-to-end through the Elysia app. (API keys deferred — see §5.)
 - **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
   fully validated + documented in Swagger.
 - **M3** — Alerts + **webhooks**: subscriptions (org/server/user), signed dispatch, delivery
