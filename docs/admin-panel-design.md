@@ -13,9 +13,10 @@ Two goals now drive this work:
 
 1. A web **admin panel** — multi-user control plane to manage servers, view metrics, onboard
    agents, run commands, and view/configure alerts from a browser.
-2. A sellable **service** — the intent is to offer Pulse to other people. That means a
-   documented public **API** (Swagger), real authentication, input validation, security
-   middleware, per-customer webhooks, and (potentially) multi-tenancy. See §4.
+2. A sellable **service** — Pulse will be offered as a **hosted, multi-tenant SaaS**
+   (decided). That means a documented public **API** (Swagger), real authentication,
+   input validation, security middleware, per-customer webhooks, and org-based
+   multi-tenancy from day one. See §4.
 
 ### Explicit non-goals for v1
 
@@ -75,6 +76,8 @@ SaaS. All auth data stays in our own database. Deliberate rejection of Clerk/Aut
 | Validation    | **TypeBox** (Elysia `t`)        | One schema drives runtime validation, TS types, and OpenAPI |
 | API docs      | **@elysiajs/swagger**           | OpenAPI/Swagger generated from the route schemas — always in sync |
 | Web UI        | **SvelteKit** (adapter-node/bun)| Client for the API; fast, minimal                          |
+| UI components | **Bits UI**                     | Headless/accessible Svelte primitives — behavior without imposed styling |
+| Styling       | **Tailwind CSS**                | Utility-first; 100% responsive, modern, consistent design tokens |
 | Lint/format   | **BiomeJS**                     | Single fast tool, no ESLint+Prettier sprawl                |
 | Auth          | **better-auth**                 | Self-hosted; email/password, sessions, plus `organization`, `admin`, `apiKey` plugins for tenancy/RBAC/programmatic access |
 | App DB        | **bun:sqlite** (+ Drizzle)      | Backs better-auth + orgs/webhooks/audit; embedded, no server |
@@ -82,27 +85,25 @@ SaaS. All auth data stays in our own database. Deliberate rejection of Clerk/Aut
 
 Dependency discipline mirrors the Rust side: add a dependency only with justification.
 
-## 4. Multi-tenancy & productization (needs a decision)
+## 4. Multi-tenancy (decided: hosted multi-tenant SaaS)
 
-Selling Pulse forces one architectural fork. Two viable models:
+Pulse is offered as a **hosted, multi-tenant SaaS**. We run the API; customers sign up, each
+in their own **organization**. An org's servers, metrics, alerts and webhooks are isolated
+from every other org.
 
-**Model A — Hosted multi-tenant SaaS.** We run the API; customers sign up, each in their own
-**organization**. An org's servers/metrics/webhooks are isolated from every other org. Since
-`pulse-master` is single-tenant, the clean isolation is **one master per organization**: the
-`organizations` table stores that org's master URL + admin token, and the API routes each
-request to the caller's org master. Hard data isolation, master stays simple.
+- **Isolation model:** since `pulse-master` is single-tenant, each org gets **its own master**.
+  The `organizations` table stores that org's `master_url` + `master_admin_token`; the API
+  resolves the caller's org on every request and routes to that org's master. This gives hard
+  data isolation while keeping the master unchanged.
+- **Scoping:** every app-DB query is scoped by `org_id`. A user's requests can only ever
+  reach their own org's master — enforced in a middleware layer, not per-handler.
+- **Foundation:** better-auth's **`organization` plugin** models users ↔ orgs ↔ roles.
+  Sign-up creates a new org with the signer as **owner** (§5).
+- **Org → master provisioning** (how a new org gets a master) is an operational open question
+  — see §15. v1 can start with manual/assisted master provisioning per org while the
+  self-service flow is designed.
 
-**Model B — Self-hosted licensed product.** Each customer runs the whole stack (master + API
-+ panel) themselves; single tenant per install. Selling = licensing/packaging. No tenant
-scoping needed in the schema.
-
-**Recommendation (hedges both):** build on better-auth's **`organization` plugin from day
-one**, where every user belongs to an org. Self-hosted deployments simply have exactly one
-org; SaaS has many. Master access is resolved **per org** (URL + token on the org record).
-This costs little now and avoids a painful retrofit if we go SaaS later.
-
-> This is the one decision that changes the data model materially — confirmed choice needed
-> before M1.
+Built org-scoped from day one so no retrofit is ever needed.
 
 ## 5. Authentication & authorization
 
@@ -112,13 +113,15 @@ same origin.
 
 - **Providers:** email & password to start. Social/SSO later via better-auth providers if
   customers ask.
-- **Registration:** open sign-up **disabled by default** for self-hosted; for SaaS, sign-up
-  creates a new org (org owner). Gated via better-auth config / the `admin` plugin.
+- **Registration:** public sign-up **creates a new organization** with the signer as its
+  **owner**. Additional members join by invite (owner/admin invites). Managed via the
+  better-auth `organization` plugin.
 - **Passwords:** hashed by better-auth (scrypt default). Never logged or returned.
 - **Sessions:** DB-backed, delivered as httpOnly, SameSite=Lax, Secure cookies; validated on
   every request via better-auth (`getSession`) populating request context / `event.locals`.
-- **Roles / RBAC:** better-auth `admin` + `organization` plugins provide roles (owner/admin/
-  viewer) and per-org membership without a schema rewrite.
+- **Roles / RBAC (launch set):** **owner / admin / viewer**, per org, via the better-auth
+  `organization` plugin. Viewer is read-only; admin operates the fleet (rename/remove/exec,
+  webhooks); owner also manages members, billing and org settings.
 - **Programmatic API access (for selling):** better-auth **`apiKey` plugin** issues per-org
   API keys so customers can call the documented API from their own tooling/CI, rate-limited
   and scoped per key.
@@ -142,11 +145,31 @@ The Elysia API is the product surface, so it is specified, not ad-hoc:
   - Request/audit logging (who/what/when) for state-changing and `exec` routes.
 - **Versioning:** routes under `/v1` from the start so the public contract can evolve.
 
-## 7. Web UI (SvelteKit)
+## 7. Web UI (SvelteKit + Bits UI + Tailwind)
 
 Thin client over the API: login, fleet overview, agent detail (live + range charts),
 rename/remove/exec, alerts, webhook management, add-server. Holds no secrets — all data and
 mutations go through the API with the session cookie.
+
+**Stack:** SvelteKit for routing/data-loading, **Bits UI** for accessible headless
+primitives (dialog, dropdown, tabs, tooltip…), **Tailwind** for styling and full
+responsiveness, **uPlot** for time-series charts.
+
+**DX & structure conventions (enforced from M0):**
+
+- **No god files.** Single responsibility per component; a route's `+page.svelte` composes
+  small components, it does not inline everything. Soft cap ~150–200 lines per component.
+- **Component library:** `src/lib/components/ui/` wraps Bits UI primitives with our Tailwind
+  design tokens (Button, Card, Dialog, Table, StatTile…); feature components live under
+  `src/lib/components/<feature>/`. UI primitives never call the API directly.
+- **Global hooks/stores to avoid duplication:** shared logic lives in `src/lib/hooks/` and
+  `src/lib/stores/` — e.g. `useAgents`, `usePolling`, `useAuth`, `useToast` — instead of
+  being re-implemented per page. One source of truth for fetching, polling, and auth state.
+- **Typed API client:** a single generated/typed client in `src/lib/api/` (derived from the
+  Elysia types / OpenAPI) is the only way the UI talks to the backend. No scattered `fetch`.
+- **Design tokens:** colors/spacing/typography as Tailwind theme tokens; dark mode via
+  Tailwind; responsive by default (mobile-first utilities), verified at common breakpoints.
+- **Formatting/linting:** Biome; components and stores are unit-testable in isolation.
 
 ## 8. Webhooks for alerts (per org / server / user)
 
@@ -235,7 +258,16 @@ apps/
   panel/               # SvelteKit + Bun — the web UI (consumes apps/api)
     package.json
     biome.json
-    src/routes/        # login, fleet, agent detail, add-server, alerts, webhooks
+    tailwind.config.ts # design tokens, dark mode, breakpoints
+    src/
+      lib/
+        api/           # single typed API client (from Elysia types / OpenAPI)
+        components/
+          ui/          # Bits UI + Tailwind primitives (Button, Card, Dialog, Table…)
+          <feature>/   # feature components (fleet, agent, alerts, webhooks)
+        hooks/         # global hooks — useAgents, usePolling, useAuth, useToast
+        stores/        # shared reactive state (one source of truth)
+      routes/          # login, fleet, agent detail, add-server, alerts, webhooks
 ```
 
 - Kept **out of the Cargo workspace** and Rust CI. Their own lint/test job.
@@ -273,16 +305,19 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of apps/api
 
 ## 15. Open questions / to confirm
 
-- **Selling model (blocking, §4):** Model A (hosted multi-tenant SaaS) or Model B (self-hosted
-  licensed)? Recommendation: build org-scoped from day one to serve both.
-- Roles needed at launch: owner/admin/viewer, or just admin until real use?
+- **Org → master provisioning (SaaS):** when a customer signs up, how does their org get a
+  master? Options: (a) manual/assisted per org for v1; (b) auto-provision a master container
+  per org; (c) pooled masters. Start with (a); design (b) next.
 - Deployment shape: ship API + panel as containers in `docker-compose.yml`, or dev-only first?
 - Downsampling contract for the range endpoint: fixed steps vs. server-chosen bucket.
+- Billing/metering provider (Stripe?) and what we meter (agents, retention, seats).
 
 ## 16. Proposed milestones
 
 - **M0** — Scaffold `apps/api` (Elysia + Bun + Biome + Swagger skeleton) and `apps/panel`
-  (SvelteKit), health checks, per-org master client, isolated CI job. (Awaiting go-ahead.)
+  (SvelteKit + Bits UI + Tailwind + typed API client + hooks/stores layout), health checks,
+  per-org master client, isolated CI job. Structure/DX conventions (§7) in place. (Awaiting
+  go-ahead.)
 - **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
   login/logout, session + org middleware, API keys.
 - **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
