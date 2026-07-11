@@ -55,8 +55,10 @@ Consequences:
 
 Vixpi Pulse's whole premise is "runs inside your server, zero external dependencies."
 Depending on an auth SaaS to monitor self-hosted infrastructure is contradictory and adds
-an outbound dependency + failure mode. We roll a minimal self-hosted auth instead
-(§4). This is a deliberate rejection of Clerk/Auth0/etc.
+an outbound dependency + failure mode. We use **better-auth** — a self-hosted,
+framework-agnostic TypeScript auth library — instead of a SaaS (§4). All auth data stays in
+the panel's own database; nothing leaves the server. This is a deliberate rejection of
+Clerk/Auth0/etc.
 
 ## 3. Tech stack
 
@@ -65,8 +67,8 @@ an outbound dependency + failure mode. We roll a minimal self-hosted auth instea
 | Runtime      | **Bun**                         | Fast, native `bun:sqlite`, single toolchain           |
 | Framework    | **SvelteKit** (adapter-node/bun)| Full-stack — server routes make the BFF trivial       |
 | Lint/format  | **BiomeJS**                     | Single fast tool, no ESLint+Prettier sprawl           |
-| Auth         | Self-hosted sessions            | httpOnly cookie + argon2 password hash                 |
-| Panel DB     | **bun:sqlite** (+ Drizzle)      | Users/sessions only; tiny, embedded, no server        |
+| Auth         | **better-auth**                 | Self-hosted, framework-agnostic; email/password + session cookies out of the box; `admin`/`organization` plugins for future RBAC |
+| Panel DB     | **bun:sqlite** (+ Drizzle)      | Backs better-auth's schema (users/sessions/accounts) + panel data; embedded, no server |
 | Charts       | **uPlot**                       | ~40 KB, built for time series; matches the lean ethos |
 
 Dependency discipline mirrors the Rust side: add a dependency only with justification.
@@ -74,22 +76,28 @@ No component library bloat; hand-rolled minimal UI to start.
 
 ## 4. Authentication design (v1)
 
-- **Registration:** first-run bootstrap creates the initial admin. Further registration is
-  invite/admin-gated (open self-registration is off by default for an infra tool).
-- **Passwords:** hashed with argon2id. Never logged, never returned.
-- **Sessions:** opaque random session id stored in `bun:sqlite`, delivered as an httpOnly,
-  SameSite=Lax, Secure cookie. Server validates on every request in `hooks.server.ts`.
+Auth is handled by **better-auth** (https://better-auth.com), configured against the panel's
+`bun:sqlite` DB via its Drizzle adapter. We use its built-in **email & password** provider
+and session management rather than hand-rolling.
+
+- **Registration:** first-run bootstrap creates the initial admin. Open self-registration is
+  **disabled by default** for an infra tool — better-auth's `disableSignUp` (or the `admin`
+  plugin's invite/create-user flow) gates further accounts to admins.
+- **Passwords:** hashed by better-auth (scrypt by default; configurable). Never logged,
+  never returned in payloads.
+- **Sessions:** better-auth issues DB-backed sessions delivered as httpOnly, SameSite=Lax,
+  Secure cookies. Validated on every request in `hooks.server.ts` via better-auth's
+  SvelteKit handler / `getSession`, populating `event.locals`.
 - **Authorization to the master:** the SvelteKit server attaches `PULSE_ADMIN_TOKEN`
   (from its own env) to outbound master calls. Panel users never see or hold it.
-- **CSRF:** SvelteKit's built-in origin check for form actions; state-changing API routes
-  require same-origin + valid session.
+- **CSRF:** SvelteKit's built-in origin check for form actions; better-auth's endpoints run
+  under the same origin; state-changing API routes require a valid session.
+- **Roles / RBAC (later):** the `admin` and `organization` plugins add roles, user
+  management and teams without a schema rewrite — see §12.
 
-Schema (panel DB, indicative):
-
-```
-users(id, email, password_hash, role, created_at)
-sessions(id, user_id, expires_at, created_at)
-```
+Schema is **generated and owned by better-auth** (`user`, `session`, `account`,
+`verification` tables) via `better-auth generate` / `migrate`. Panel-specific tables (e.g.
+the exec audit log, §11) are added alongside in the same Drizzle schema.
 
 ## 5. What the panel calls (existing master API)
 
@@ -167,10 +175,16 @@ The panel lives in the repo **temporarily**, isolated so it can be extracted lat
 apps/panel/            # SvelteKit + Bun app (self-contained)
   package.json
   biome.json
-  drizzle/             # panel DB schema + migrations (users/sessions)
+  drizzle/             # panel DB schema + migrations (better-auth tables + panel data)
   src/
-    hooks.server.ts    # session validation, admin-token injection
-    lib/server/        # master API client, auth, db
+    hooks.server.ts    # better-auth session validation, admin-token injection
+    lib/server/
+      auth.ts          # better-auth instance (Drizzle adapter, email/password)
+      master.ts        # pulse-master REST client
+      db.ts            # bun:sqlite + Drizzle
+    routes/
+      api/auth/        # better-auth handler mount
+      ...              # login, fleet, agent detail, add-server, alerts
     routes/            # login, fleet, agent detail, add-server, alerts
 ```
 
@@ -183,15 +197,16 @@ apps/panel/            # SvelteKit + Bun app (self-contained)
 ```
 PULSE_MASTER_API=http://master:8080     # base URL of pulse-master REST API
 PULSE_ADMIN_TOKEN=...                    # server-side only; injected into master calls
-PANEL_DB_PATH=./panel.sqlite             # bun:sqlite file for users/sessions
-PANEL_SESSION_SECRET=...                 # cookie signing / session secret
-PANEL_ALLOW_OPEN_REGISTRATION=false      # default: admin-gated
+PANEL_DB_PATH=./panel.sqlite             # bun:sqlite file (better-auth + panel data)
+BETTER_AUTH_SECRET=...                    # better-auth signing secret
+BETTER_AUTH_URL=http://localhost:5173     # better-auth base URL (origin of the panel)
+PANEL_ALLOW_OPEN_REGISTRATION=false      # default: admin-gated (maps to disableSignUp)
 ```
 
 ## 11. Security considerations
 
 - Admin token confined to the SvelteKit server; never serialized to client payloads.
-- httpOnly + Secure + SameSite cookies; argon2id password hashing.
+- httpOnly + Secure + SameSite cookies and password hashing handled by better-auth.
 - Same-origin enforcement on state-changing routes; SvelteKit CSRF for form actions.
 - `exec` is a high-risk surface (arbitrary commands) — gate behind admin role and audit-log
   every invocation (who, agent, command, timestamp) in the panel DB.
@@ -200,7 +215,8 @@ PANEL_ALLOW_OPEN_REGISTRATION=false      # default: admin-gated
 ## 12. Open questions / to confirm before v2+
 
 - Multi-user beyond a single admin: do we need viewer vs admin roles in v1, or is one role
-  enough until the panel is in real use?
+  enough until the panel is in real use? (better-auth's `admin` plugin adds roles when we
+  want them, so this can stay deferred without lock-in.)
 - Deployment shape: ship the panel as a container alongside `master` in
   `docker-compose.yml`, or keep it dev-only until it stabilizes?
 - Downsampling contract for the range endpoint: fixed steps vs. server-chosen bucket based
