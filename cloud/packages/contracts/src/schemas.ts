@@ -39,6 +39,14 @@ export const FleetOverview = Type.Object({
 });
 export type FleetOverview = Static<typeof FleetOverview>;
 
+/** Everything the UI needs to render the add-server command. */
+export const InstallInfo = Type.Object({
+  masterEndpoint: Type.String(),
+  registerToken: Type.String(),
+  command: Type.String(),
+});
+export type InstallInfo = Static<typeof InstallInfo>;
+
 export const ExecResult = Type.Object({
   agentId: Type.String(),
   exitCode: Type.Integer(),

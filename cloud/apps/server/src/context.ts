@@ -69,6 +69,8 @@ export interface ServerContext {
   user: SessionUser;
   org: OrgContext;
   master: MasterClient;
+  /** The org master's REST base URL (not secret; the admin token is never exposed). */
+  masterUrl: string;
 }
 
 /**
@@ -126,6 +128,7 @@ export async function resolveServerContext(
     user: auth.user,
     org: { id: org.id, name: org.name, slug: org.slug, role: mine.role, hasMaster: true },
     master,
+    masterUrl: org.masterUrl,
   };
 }
 

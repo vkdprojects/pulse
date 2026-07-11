@@ -8,6 +8,23 @@ function fail(set: { status?: number | string }, error: ServerContextError) {
   return { error: { code: error.code, message: error.message } };
 }
 
+const DEFAULT_INSTALL_SCRIPT =
+  'https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh';
+
+/** Best-effort gRPC endpoint (port 50051) from the master's REST base URL. */
+function grpcEndpoint(masterRestUrl: string): string {
+  try {
+    const u = new URL(masterRestUrl);
+    return `https://${u.hostname}:50051`;
+  } catch {
+    return masterRestUrl;
+  }
+}
+
+function installCommand(scriptUrl: string, endpoint: string, token: string): string {
+  return `curl -sfL ${scriptUrl} | PULSE_MASTER=${endpoint} PULSE_TOKEN=${token} GITHUB_TOKEN=ghp_YOUR_TOKEN sudo sh -`;
+}
+
 /**
  * Org-scoped fleet management — every route proxies to the caller's org master (admin token
  * stays server-side). Guarded by `resolveServerContext` (auth → active org → membership →
@@ -40,6 +57,24 @@ export function serversRoutes(deps: AppDeps) {
         };
       },
       { detail: { tags: ['servers'], summary: 'Fleet overview' } },
+    )
+    .get(
+      '/install',
+      async ({ request, set }) => {
+        const ctx = await guard(request);
+        if (isContextError(ctx)) return fail(set, ctx.error);
+        const { register_token } = await ctx.master.registerToken();
+        const endpoint = grpcEndpoint(ctx.masterUrl);
+        const scriptUrl = deps.installScriptUrl ?? DEFAULT_INSTALL_SCRIPT;
+        return {
+          masterEndpoint: endpoint,
+          registerToken: register_token,
+          command: installCommand(scriptUrl, endpoint, register_token),
+        };
+      },
+      {
+        detail: { tags: ['servers'], summary: 'Install command + register token for a new agent' },
+      },
     )
     .get(
       '/:id',

@@ -29,6 +29,7 @@
       {/if}
     </div>
     <div class="flex items-center gap-3">
+      <a class="text-sm text-indigo-600 hover:underline" href="/servers/add">Add server</a>
       <a class="text-sm text-indigo-600 hover:underline" href="/webhooks">Webhooks</a>
       <Button variant="ghost" onclick={() => fleet.refresh()}>Refresh</Button>
     </div>

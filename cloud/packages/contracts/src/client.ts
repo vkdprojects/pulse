@@ -7,6 +7,7 @@ import {
   ExecResult,
   FleetOverview,
   HealthResponse,
+  InstallInfo,
   MeResponse,
   WebhookDeliveryList,
   WebhookList,
@@ -85,6 +86,8 @@ export function createApiClient(options: ApiClientOptions) {
     me: () => request('/v1/me', MeResponse),
     /** Fleet overview for the active org. Throws ApiError(409) if no master is provisioned. */
     servers: () => request('/v1/servers', FleetOverview),
+    /** Install command + register token for adding an agent. Throws ApiError(409) if no master. */
+    installInfo: () => request('/v1/servers/install', InstallInfo),
     renameServer: (id: string, name: string) =>
       mutate(`/v1/servers/${encodeURIComponent(id)}/name`, {
         method: 'PUT',

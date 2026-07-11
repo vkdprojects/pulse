@@ -18,6 +18,7 @@ const app = createApp({
   db,
   corsOrigins: env.corsOrigins,
   alertIngestSecret: env.ALERT_INGEST_SECRET || undefined,
+  installScriptUrl: env.INSTALL_SCRIPT_URL || undefined,
   version: process.env.PULSE_VERSION ?? '0.1.0',
 });
 

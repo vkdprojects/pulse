@@ -1,8 +1,8 @@
 # Admin Panel & Service API — Design Document
 
-> Status: **M0–M3 done.** The `cloud/` workspace is green (lint + typecheck + 44 tests); auth
-> + multi-tenancy + org-scoped fleet management + signed alert webhooks work end-to-end. This
-> document captures the agreed architecture; milestones (§16) track progress.
+> Status: **M0–M4 done.** The `cloud/` workspace is green (lint + typecheck + 46 tests); auth
+> + multi-tenancy + org-scoped fleet management + signed alert webhooks + add-server work
+> end-to-end. This document captures the agreed architecture; milestones (§16) track progress.
 
 ## 1. Motivation
 
@@ -376,7 +376,11 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
   an alert out to matching subscriptions. Web: webhooks page (create, list, test, delete,
   secret-once banner). Verified by integration tests: CRUD, signature verification, scope
   matching, ingest secret enforcement + fan-out + delivery log.
-- **M4** — Add-server flow (command + register token).
+- **M4 — done.** Add-server flow. API: `GET /v1/servers/install` (org+master guarded) fetches
+  the org master's register token and returns a ready-to-paste `curl … | sh` command with the
+  gRPC endpoint derived from the org's master URL. Web: add-server page (command + copy button
+  + register token), linked from the fleet. Verified by integration tests (token in command,
+  409 when no master).
 - **M5** — Range endpoint in Rust (§9.1) + time-range charts (Grafana parity begins).
 - **M6+** — Grafana sunset per §11; billing/metering hooks if SaaS.
 ```

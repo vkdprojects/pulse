@@ -16,6 +16,8 @@ export interface AppDeps {
   version?: string;
   /** Shared secret a master presents to POST /v1/internal/alerts/:orgId. */
   alertIngestSecret?: string;
+  /** URL of the install script shown in the add-server command. */
+  installScriptUrl?: string;
   /** Injected in tests to stub the per-org pulse-master; defaults to real `fetch`. */
   masterFetch?: FetchLike;
   /** Injected in tests to capture outbound webhook deliveries; defaults to real `fetch`. */

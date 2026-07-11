@@ -67,6 +67,7 @@ export function createMasterClient(config: MasterClientConfig) {
   return {
     overview: () => send<MasterOverview>('GET', '/api/overview'),
     listAgents: () => send<{ agents: unknown[] }>('GET', '/api/agents'),
+    registerToken: () => send<{ register_token: string }>('GET', '/api/register-token'),
     latestMetric: (id: string) => send<unknown>('GET', `/api/agents/${id}/metrics/latest`),
     metrics: (id: string) =>
       send<{ agent_id: string; metrics: unknown[] }>('GET', `/api/agents/${id}/metrics`),
