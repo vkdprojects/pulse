@@ -1,8 +1,8 @@
 # Admin Panel & Service API — Design Document
 
-> Status: **M0–M2 done.** The `cloud/` workspace is green (lint + typecheck + 32 tests);
-> auth + multi-tenancy + org-scoped fleet management work end-to-end. This document captures
-> the agreed architecture; milestones (§16) track progress.
+> Status: **M0–M3 done.** The `cloud/` workspace is green (lint + typecheck + 44 tests); auth
+> + multi-tenancy + org-scoped fleet management + signed alert webhooks work end-to-end. This
+> document captures the agreed architecture; milestones (§16) track progress.
 
 ## 1. Motivation
 
@@ -370,8 +370,12 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
   detail (stats + rename/remove + exec panel). Verified by integration tests with a stubbed
   master (injected fetch): proxy uses the org token, guards return the right codes, exec
   writes an audit row. (uPlot time-range charts deferred to M5.)
-- **M3** — Alerts + **webhooks**: subscriptions (org/server/user), signed dispatch, delivery
-  log, test-send.
+- **M3 — done.** Alerts + **webhooks**. Subscriptions scoped org/server/user (create returns
+  the signing secret once); HMAC-SHA256 signed dispatch (`x-vixpi-signature`) with a delivery
+  log; test-send; secured ingest `POST /v1/internal/alerts/:orgId` (shared secret) that fans
+  an alert out to matching subscriptions. Web: webhooks page (create, list, test, delete,
+  secret-once banner). Verified by integration tests: CRUD, signature verification, scope
+  matching, ingest secret enforcement + fan-out + delivery log.
 - **M4** — Add-server flow (command + register token).
 - **M5** — Range endpoint in Rust (§9.1) + time-range charts (Grafana parity begins).
 - **M6+** — Grafana sunset per §11; billing/metering hooks if SaaS.

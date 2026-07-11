@@ -5,15 +5,21 @@ import { type FetchLike, HealthResponse } from '@vixpi/contracts';
 import type { Db } from '@vixpi/db';
 import { Elysia } from 'elysia';
 import { resolveAuth, resolveOrg } from './context';
+import { ingestRoutes } from './routes/ingest';
 import { serversRoutes } from './routes/servers';
+import { webhooksRoutes } from './routes/webhooks';
 
 export interface AppDeps {
   auth: Auth;
   db: Db;
   corsOrigins: string[];
   version?: string;
+  /** Shared secret a master presents to POST /v1/internal/alerts/:orgId. */
+  alertIngestSecret?: string;
   /** Injected in tests to stub the per-org pulse-master; defaults to real `fetch`. */
   masterFetch?: FetchLike;
+  /** Injected in tests to capture outbound webhook deliveries; defaults to real `fetch`. */
+  webhookFetch?: FetchLike;
 }
 
 const SERVICE = 'vixpi-pulse-api';
@@ -76,6 +82,8 @@ export function createApp(deps: AppDeps) {
           ),
       )
       .use(serversRoutes(deps))
+      .use(webhooksRoutes(deps))
+      .use(ingestRoutes(deps))
   );
 }
 

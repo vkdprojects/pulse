@@ -129,8 +129,35 @@ export async function resolveServerContext(
   };
 }
 
-export function isContextError(
-  result: ServerContext | { error: ServerContextError },
+export interface OrgOnlyContext {
+  user: SessionUser;
+  org: OrgContext;
+}
+
+/**
+ * Lighter guard for panel-side org resources (webhooks, settings): authenticated → active
+ * org → member. Does NOT require a provisioned master, unlike `resolveServerContext`.
+ */
+export async function resolveOrgContext(
+  deps: { auth: Auth; db: Db },
+  headers: Headers,
+): Promise<OrgOnlyContext | { error: ServerContextError }> {
+  const auth = await resolveAuth(deps.auth, headers);
+  if (!auth) {
+    return { error: { status: 401, code: 'unauthorized', message: 'Not authenticated' } };
+  }
+  if (!auth.activeOrgId) {
+    return { error: { status: 403, code: 'no_active_org', message: 'No active organization' } };
+  }
+  const org = await resolveOrg(deps.db, auth.user.id, auth.activeOrgId);
+  if (!org || org.role === null) {
+    return { error: { status: 403, code: 'not_a_member', message: 'Not a member of this org' } };
+  }
+  return { user: auth.user, org };
+}
+
+export function isContextError<T>(
+  result: T | { error: ServerContextError },
 ): result is { error: ServerContextError } {
-  return 'error' in result;
+  return typeof result === 'object' && result !== null && 'error' in result;
 }

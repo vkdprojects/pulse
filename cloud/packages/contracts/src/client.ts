@@ -1,6 +1,16 @@
 import type { Static, TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import { ErrorResponse, ExecResult, FleetOverview, HealthResponse, MeResponse } from './schemas';
+import {
+  CreatedWebhook,
+  type CreateWebhookBody,
+  ErrorResponse,
+  ExecResult,
+  FleetOverview,
+  HealthResponse,
+  MeResponse,
+  WebhookDeliveryList,
+  WebhookList,
+} from './schemas';
 
 /** Minimal fetch signature — satisfied by the global `fetch` and by test mocks alike. */
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -87,6 +97,15 @@ export function createApiClient(options: ApiClientOptions) {
         method: 'POST',
         body: JSON.stringify({ command, timeoutSecs }),
       }),
+    webhooks: () => request('/v1/webhooks', WebhookList),
+    createWebhook: (input: CreateWebhookBody) =>
+      request('/v1/webhooks', CreatedWebhook, { method: 'POST', body: JSON.stringify(input) }),
+    deleteWebhook: (id: string) =>
+      mutate(`/v1/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    testWebhook: (id: string) =>
+      mutate(`/v1/webhooks/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' }),
+    webhookDeliveries: (id: string) =>
+      request(`/v1/webhooks/${encodeURIComponent(id)}/deliveries`, WebhookDeliveryList),
   };
 }
 

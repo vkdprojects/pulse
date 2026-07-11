@@ -28,7 +28,10 @@
         </p>
       {/if}
     </div>
-    <Button variant="ghost" onclick={() => fleet.refresh()}>Refresh</Button>
+    <div class="flex items-center gap-3">
+      <a class="text-sm text-indigo-600 hover:underline" href="/webhooks">Webhooks</a>
+      <Button variant="ghost" onclick={() => fleet.refresh()}>Refresh</Button>
+    </div>
   </header>
 
   {#if $fleet.loading}

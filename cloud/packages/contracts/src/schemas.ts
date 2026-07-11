@@ -76,3 +76,52 @@ export const MeResponse = Type.Object({
   org: Type.Union([OrgSummary, Type.Null()]),
 });
 export type MeResponse = Static<typeof MeResponse>;
+
+export const WebhookScope = Type.Union([
+  Type.Literal('org'),
+  Type.Literal('server'),
+  Type.Literal('user'),
+]);
+export type WebhookScope = Static<typeof WebhookScope>;
+
+export const WebhookSubscription = Type.Object({
+  id: Type.String(),
+  scope: WebhookScope,
+  target: Type.Union([Type.String(), Type.Null()]),
+  url: Type.String(),
+  events: Type.Array(Type.String()),
+  active: Type.Boolean(),
+  createdAt: Type.String(),
+});
+export type WebhookSubscription = Static<typeof WebhookSubscription>;
+
+export const WebhookList = Type.Object({ webhooks: Type.Array(WebhookSubscription) });
+export type WebhookList = Static<typeof WebhookList>;
+
+/** Create response includes the signing secret — shown once, never returned again. */
+export const CreatedWebhook = Type.Composite([
+  WebhookSubscription,
+  Type.Object({ secret: Type.String() }),
+]);
+export type CreatedWebhook = Static<typeof CreatedWebhook>;
+
+export const CreateWebhookBody = Type.Object({
+  scope: WebhookScope,
+  target: Type.Optional(Type.String()),
+  url: Type.String({ minLength: 1 }),
+  events: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+export type CreateWebhookBody = Static<typeof CreateWebhookBody>;
+
+export const WebhookDelivery = Type.Object({
+  id: Type.String(),
+  event: Type.String(),
+  status: Type.String(),
+  responseStatus: Type.Union([Type.Integer(), Type.Null()]),
+  error: Type.Union([Type.String(), Type.Null()]),
+  createdAt: Type.String(),
+});
+export type WebhookDelivery = Static<typeof WebhookDelivery>;
+
+export const WebhookDeliveryList = Type.Object({ deliveries: Type.Array(WebhookDelivery) });
+export type WebhookDeliveryList = Static<typeof WebhookDeliveryList>;

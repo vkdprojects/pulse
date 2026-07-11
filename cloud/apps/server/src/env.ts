@@ -7,6 +7,8 @@ const EnvSchema = Type.Object({
   BETTER_AUTH_URL: Type.String({ minLength: 1 }),
   /** Comma-separated allow-list of browser origins. */
   CORS_ORIGINS: Type.String({ default: 'http://localhost:5173' }),
+  /** Shared secret masters present when POSTing alerts to the ingest endpoint. */
+  ALERT_INGEST_SECRET: Type.String({ default: '' }),
   PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 3000 }),
 });
 
