@@ -1,4 +1,4 @@
-# Admin Panel — Design Document
+# Admin Panel & Service API — Design Document
 
 > Status: **Proposal / awaiting approval.** No application code has been scaffolded yet.
 > This document captures the agreed architecture so implementation can start from a shared plan.
@@ -7,137 +7,190 @@
 
 Vixpi Pulse today has three faces: the `pulse` TUI (operators), pre-built Grafana
 dashboards (visualization), and the `pulse-master` REST API (the machine interface).
-There is **no multi-user web control plane**.
+There is **no multi-user web control plane**, and no productized, documented service API.
 
-The goal is a web **admin panel** that:
+Two goals now drive this work:
 
-- Authenticates real users (login, registration, sessions) — the master only knows a
-  single shared admin token today.
-- Manages the fleet from a browser: list servers, view metrics, rename/remove agents,
-  run remote commands, view/acknowledge alerts.
-- Onboards new servers by generating the install command + register token.
-- **Eventually replaces Grafana** — see §8. Grafana stays for now; the panel grows until
-  it covers the same visualization needs, then Grafana is dropped.
+1. A web **admin panel** — multi-user control plane to manage servers, view metrics, onboard
+   agents, run commands, and view/configure alerts from a browser.
+2. A sellable **service** — the intent is to offer Pulse to other people. That means a
+   documented public **API** (Swagger), real authentication, input validation, security
+   middleware, per-customer webhooks, and (potentially) multi-tenancy. See §4.
 
 ### Explicit non-goals for v1
 
-- Full RBAC / teams / orgs. Start with a single role (admin). Design leaves room to grow.
-- SSH-based remote provisioning from the browser (phase 2 — see §7).
-- Re-implementing every Grafana dashboard on day one (that is the §8 roadmap, not v1).
+- Billing/metering integration (Stripe etc.) — designed around, not built yet.
+- SSH-based remote provisioning from the browser (phase 2 — see §10).
+- Re-implementing every Grafana dashboard on day one (that is the §11 roadmap, not v1).
 
-## 2. Core decision: keep user management OUT of Rust
+## 2. Core decision: keep user/tenant logic OUT of Rust
 
 `pulse-master` is a lean telemetry engine (5.8 MB, zero external deps, zero `unsafe`).
-Adding user accounts, sessions, password hashing and RBAC to it would betray that design.
+Adding accounts, sessions, RBAC, tenancy and webhooks to it would betray that design.
 
-Instead, the panel is a **separate TypeScript application** that acts as a
-**Backend-for-Frontend (BFF)**:
+Instead, all of that lives in a TypeScript layer split into two apps:
+
+- **`apps/api` — Elysia (Bun):** the product API and gateway. Owns auth, input validation,
+  Swagger docs, security middleware, webhook subscriptions + dispatch, and the only client
+  that talks to `pulse-master` (holding its admin token). This is the sellable, documented
+  surface.
+- **`apps/panel` — SvelteKit (Bun):** the web UI. Consumes `apps/api`; holds no secrets.
 
 ```
-                cookie session                  Bearer PULSE_ADMIN_TOKEN
-  Browser ───────────────────────▶ SvelteKit ──────────────────────────▶ pulse-master
-  (user login)                     (server, Bun)      (server-to-server)   REST :8080
-                                        │
-                                        └── bun:sqlite  (users, sessions)
+  Browser (SvelteKit UI)
+        │  session cookie
+        ▼
+  ┌───────────────────────── Elysia API (Bun) ─────────────────────────┐
+  │  better-auth (users, sessions, orgs, API keys)                     │
+  │  input validation (TypeBox)   ·   Swagger / OpenAPI                 │
+  │  security middleware (CORS, rate-limit, headers)                    │
+  │  webhook subscriptions + dispatch (per org / server / user)        │
+  └───────────────┬───────────────────────────────┬────────────────────┘
+                  │ Bearer PULSE_ADMIN_TOKEN       │
+                  ▼                                ▼
+          pulse-master REST :8080          bun:sqlite + Drizzle
+        (per tenant — see §4)          (auth, orgs, webhooks, audit)
 ```
 
 Consequences:
 
-- The `PULSE_ADMIN_TOKEN` **never reaches the browser.** It lives only in the SvelteKit
-  server process, which calls the master machine-to-machine. Browser clients hold only an
-  httpOnly session cookie tied to a panel user.
-- The user layer lives in TypeScript, where it is cheap and disposable — exactly where we
-  want something that may be extracted or replaced later.
-- **The Rust master is unchanged** except for a few small, surgical read endpoints (§6).
-  No user/auth logic ever enters Rust.
+- The `PULSE_ADMIN_TOKEN` **never reaches the browser.** It lives only in the Elysia
+  process, which calls the master machine-to-machine.
+- The user/tenant layer lives in TypeScript, where it is cheap to evolve.
+- **The Rust master stays unchanged** except a few small, surgical read endpoints (§9) and
+  pointing its existing alert webhook at the API (§8). No user/tenant logic enters Rust.
 
 ### Why not Clerk / an external auth SaaS
 
-Vixpi Pulse's whole premise is "runs inside your server, zero external dependencies."
-Depending on an auth SaaS to monitor self-hosted infrastructure is contradictory and adds
-an outbound dependency + failure mode. We use **better-auth** — a self-hosted,
-framework-agnostic TypeScript auth library — instead of a SaaS (§4). All auth data stays in
-the panel's own database; nothing leaves the server. This is a deliberate rejection of
-Clerk/Auth0/etc.
+Vixpi Pulse's premise is "runs inside your server, zero external dependencies." We use
+**better-auth** — a self-hosted, framework-agnostic TypeScript auth library — instead of a
+SaaS. All auth data stays in our own database. Deliberate rejection of Clerk/Auth0/etc.
 
 ## 3. Tech stack
 
-| Concern      | Choice                          | Rationale                                             |
-|--------------|---------------------------------|-------------------------------------------------------|
-| Runtime      | **Bun**                         | Fast, native `bun:sqlite`, single toolchain           |
-| Framework    | **SvelteKit** (adapter-node/bun)| Full-stack — server routes make the BFF trivial       |
-| Lint/format  | **BiomeJS**                     | Single fast tool, no ESLint+Prettier sprawl           |
-| Auth         | **better-auth**                 | Self-hosted, framework-agnostic; email/password + session cookies out of the box; `admin`/`organization` plugins for future RBAC |
-| Panel DB     | **bun:sqlite** (+ Drizzle)      | Backs better-auth's schema (users/sessions/accounts) + panel data; embedded, no server |
-| Charts       | **uPlot**                       | ~40 KB, built for time series; matches the lean ethos |
+| Concern       | Choice                          | Rationale                                                  |
+|---------------|---------------------------------|------------------------------------------------------------|
+| Runtime       | **Bun**                         | Fast, native `bun:sqlite`, single toolchain for both apps  |
+| API framework | **Elysia**                      | Bun-native; end-to-end typed; TypeBox validation + Swagger built into the route definitions |
+| Validation    | **TypeBox** (Elysia `t`)        | One schema drives runtime validation, TS types, and OpenAPI |
+| API docs      | **@elysiajs/swagger**           | OpenAPI/Swagger generated from the route schemas — always in sync |
+| Web UI        | **SvelteKit** (adapter-node/bun)| Client for the API; fast, minimal                          |
+| Lint/format   | **BiomeJS**                     | Single fast tool, no ESLint+Prettier sprawl                |
+| Auth          | **better-auth**                 | Self-hosted; email/password, sessions, plus `organization`, `admin`, `apiKey` plugins for tenancy/RBAC/programmatic access |
+| App DB        | **bun:sqlite** (+ Drizzle)      | Backs better-auth + orgs/webhooks/audit; embedded, no server |
+| Charts        | **uPlot**                       | ~40 KB, built for time series; matches the lean ethos      |
 
 Dependency discipline mirrors the Rust side: add a dependency only with justification.
-No component library bloat; hand-rolled minimal UI to start.
 
-## 4. Authentication design (v1)
+## 4. Multi-tenancy & productization (needs a decision)
 
-Auth is handled by **better-auth** (https://better-auth.com), configured against the panel's
-`bun:sqlite` DB via its Drizzle adapter. We use its built-in **email & password** provider
-and session management rather than hand-rolling.
+Selling Pulse forces one architectural fork. Two viable models:
 
-- **Registration:** first-run bootstrap creates the initial admin. Open self-registration is
-  **disabled by default** for an infra tool — better-auth's `disableSignUp` (or the `admin`
-  plugin's invite/create-user flow) gates further accounts to admins.
-- **Passwords:** hashed by better-auth (scrypt by default; configurable). Never logged,
-  never returned in payloads.
-- **Sessions:** better-auth issues DB-backed sessions delivered as httpOnly, SameSite=Lax,
-  Secure cookies. Validated on every request in `hooks.server.ts` via better-auth's
-  SvelteKit handler / `getSession`, populating `event.locals`.
-- **Authorization to the master:** the SvelteKit server attaches `PULSE_ADMIN_TOKEN`
-  (from its own env) to outbound master calls. Panel users never see or hold it.
-- **CSRF:** SvelteKit's built-in origin check for form actions; better-auth's endpoints run
-  under the same origin; state-changing API routes require a valid session.
-- **Roles / RBAC (later):** the `admin` and `organization` plugins add roles, user
-  management and teams without a schema rewrite — see §12.
+**Model A — Hosted multi-tenant SaaS.** We run the API; customers sign up, each in their own
+**organization**. An org's servers/metrics/webhooks are isolated from every other org. Since
+`pulse-master` is single-tenant, the clean isolation is **one master per organization**: the
+`organizations` table stores that org's master URL + admin token, and the API routes each
+request to the caller's org master. Hard data isolation, master stays simple.
 
-Schema is **generated and owned by better-auth** (`user`, `session`, `account`,
-`verification` tables) via `better-auth generate` / `migrate`. Panel-specific tables (e.g.
-the exec audit log, §11) are added alongside in the same Drizzle schema.
+**Model B — Self-hosted licensed product.** Each customer runs the whole stack (master + API
++ panel) themselves; single tenant per install. Selling = licensing/packaging. No tenant
+scoping needed in the schema.
 
-## 5. What the panel calls (existing master API)
+**Recommendation (hedges both):** build on better-auth's **`organization` plugin from day
+one**, where every user belongs to an org. Self-hosted deployments simply have exactly one
+org; SaaS has many. Master access is resolved **per org** (URL + token on the org record).
+This costs little now and avoids a painful retrofit if we go SaaS later.
 
-The master already exposes everything the control plane needs to **read and operate**:
+> This is the one decision that changes the data model materially — confirmed choice needed
+> before M1.
 
-- Read: `/api/overview`, `/api/agents`, `/api/agents/:id/metrics[/latest]`, `/disks`,
-  `/network`, `/containers`, `/processes`, `/gpu`, `/sessions`, `/connections`, `/api/alerts`.
-- Manage: `DELETE /api/agents/:id`, `PUT /api/agents/:id/name`, `POST /api/agents/:id/exec`,
-  `GET /api/register-token`, updates rollout endpoints.
+## 5. Authentication & authorization
 
-The SvelteKit server wraps these behind its own `/api/*` (or load functions), adding the
-session check and injecting the admin token.
+Auth is handled by **better-auth**, mounted inside the Elysia API (`/api/auth/*`) against the
+app DB via its Drizzle adapter. The SvelteKit UI uses the better-auth client against that
+same origin.
 
-## 6. Required Rust additions (minimal, surgical)
+- **Providers:** email & password to start. Social/SSO later via better-auth providers if
+  customers ask.
+- **Registration:** open sign-up **disabled by default** for self-hosted; for SaaS, sign-up
+  creates a new org (org owner). Gated via better-auth config / the `admin` plugin.
+- **Passwords:** hashed by better-auth (scrypt default). Never logged or returned.
+- **Sessions:** DB-backed, delivered as httpOnly, SameSite=Lax, Secure cookies; validated on
+  every request via better-auth (`getSession`) populating request context / `event.locals`.
+- **Roles / RBAC:** better-auth `admin` + `organization` plugins provide roles (owner/admin/
+  viewer) and per-org membership without a schema rewrite.
+- **Programmatic API access (for selling):** better-auth **`apiKey` plugin** issues per-org
+  API keys so customers can call the documented API from their own tooling/CI, rate-limited
+  and scoped per key.
+- **Master authorization:** the API attaches the resolved org's `PULSE_ADMIN_TOKEN` to
+  outbound master calls. End users and API keys never see it.
 
-Approved: small read-only additions to the master API. No user logic in Rust.
+## 6. API layer: validation, docs, security
+
+The Elysia API is the product surface, so it is specified, not ad-hoc:
+
+- **Input validation:** every route declares a TypeBox schema (`body`, `query`, `params`);
+  Elysia validates and rejects bad input before handlers run, and infers types end-to-end.
+- **Swagger/OpenAPI:** `@elysiajs/swagger` generates a complete, **tag-organized** doc
+  straight from those schemas (grouped e.g. `auth`, `servers`, `metrics`, `alerts`,
+  `webhooks`), served at `/docs`. Because docs derive from the schemas, they never drift.
+- **Security middleware (applied globally):**
+  - CORS allow-list (`@elysiajs/cors`).
+  - Rate limiting per IP and per API key (Elysia rate-limit plugin + better-auth key limits).
+  - Security headers (CSP, HSTS, X-Content-Type-Options, etc.).
+  - Consistent typed error envelope; no stack traces or secrets leaked to clients.
+  - Request/audit logging (who/what/when) for state-changing and `exec` routes.
+- **Versioning:** routes under `/v1` from the start so the public contract can evolve.
+
+## 7. Web UI (SvelteKit)
+
+Thin client over the API: login, fleet overview, agent detail (live + range charts),
+rename/remove/exec, alerts, webhook management, add-server. Holds no secrets — all data and
+mutations go through the API with the session cookie.
+
+## 8. Webhooks for alerts (per org / server / user)
+
+Requirement: customers configure their own alert webhooks, scoped **per server and/or per
+user (within their org)**.
+
+- **Ingest:** `pulse-master`'s existing alert engine already fires an outbound webhook on
+  threshold breaches. We point its `PULSE_ALERT_WEBHOOK` at a secured API ingest endpoint
+  (`POST /v1/internal/alerts`). **No Rust change** beyond configuration.
+- **Subscriptions:** stored in the app DB — `webhook_subscriptions(id, org_id, scope, target,
+  url, secret, events, active, created_by)` where `scope ∈ {org, server, user}`.
+- **Dispatch:** on ingest, the API matches the alert's org + agent to subscriptions and
+  fans out with delivery guarantees: **HMAC-signed** payloads (per-subscription secret),
+  retries with backoff, and a `webhook_deliveries` log (status, attempts, response) for a
+  UI "recent deliveries" view.
+- **Management:** CRUD via the API + UI; "send test event" to validate an endpoint.
+
+## 9. Required Rust additions (minimal, surgical)
+
+Approved: small read-only additions to the master API. No user/tenant logic in Rust.
 
 1. **Time-range metrics endpoint** — the current API only returns the last ~20 readings.
-   Grafana-style charts and Grafana replacement (§8) need windowed, downsampled series:
+   Charts and Grafana replacement (§11) need windowed, downsampled series:
 
    ```
    GET /api/agents/:id/metrics?from=<ts>&to=<ts>&step=<seconds>&fields=cpu,mem,...
    ```
 
-   Backed by TimescaleDB `time_bucket()` for aggregation/downsampling (Postgres path).
-   For the SQLite path, a simpler bucketed query or a documented limitation.
+   Backed by TimescaleDB `time_bucket()` (Postgres path); simpler bucketing or a documented
+   limitation on the SQLite path.
 
-2. (Later, as §8 progresses) any aggregate endpoints Grafana panels rely on that aren't yet
-   expressible, added one at a time as the panel absorbs each dashboard.
+2. (Later, as §11 progresses) any aggregate endpoints Grafana panels rely on, added one at a
+   time as the panel absorbs each dashboard.
 
 Each addition follows repo rules: parameterized SQL, `anyhow::Result`, `tracing`, tests on
 values, `just ci` green.
 
-## 7. "Add server" flow (v1)
+## 10. "Add server" flow (v1)
 
 The panel does **not** SSH from the browser in v1. Instead:
 
 1. Operator clicks "Add server".
-2. Panel fetches the register token (`GET /api/register-token`) and the master endpoint.
-3. Panel renders the ready-to-paste install command, e.g.:
+2. API fetches the org master's register token (`GET /api/register-token`) + endpoint.
+3. UI renders the ready-to-paste install command:
 
    ```
    curl -sfL .../install-pulse.sh | \
@@ -146,89 +199,97 @@ The panel does **not** SSH from the browser in v1. Instead:
 
 4. Operator runs it on the target server; the agent auto-registers and appears in the fleet.
 
-**Phase 2 (out of scope now):** SvelteKit server executing `ssh`/`scp` to provision
-remotely, mirroring `pulse-cli`'s `installer.rs`. Flagged as security-sensitive.
+**Phase 2 (out of scope now):** API executing `ssh`/`scp` to provision remotely, mirroring
+`pulse-cli`'s `installer.rs`. Flagged as security-sensitive.
 
-## 8. Grafana sunset roadmap
+## 11. Grafana sunset roadmap
 
-The panel is the control plane first, but the intent is to **remove Grafana entirely** once
-the panel covers its visualization. Sequencing:
+The intent is to **remove Grafana entirely** once the panel covers its visualization:
 
-1. **v1** — control plane + basic live charts (poll `/metrics/latest`, small windows).
-2. **v2** — time-range charts via the new range endpoint (§6.1): CPU/mem/disk/net over
-   selectable windows with downsampling. This is the point where the panel starts matching
-   Grafana's core dashboards.
-3. **v3** — port the remaining `grafana/dashboard*.json` panels (per-core, GPU, containers,
-   TCP) into the panel. Add whatever aggregate endpoints are still missing (§6.2).
-4. **Decommission** — remove the `grafana` service from `docker-compose.yml`, the
-   `grafana/` provisioning, and `docs/grafana.md`; update README. Only after the panel is at
-   parity for the dashboards in active use.
+1. **v1** — control plane + basic live charts (poll `/metrics/latest`).
+2. **v2** — time-range charts via the range endpoint (§9.1); begins Grafana core parity.
+3. **v3** — port remaining `grafana/dashboard*.json` panels (per-core, GPU, containers, TCP);
+   add any missing aggregate endpoints (§9.2).
+4. **Decommission** — remove the `grafana` service from `docker-compose.yml`, the `grafana/`
+   provisioning, and `docs/grafana.md`; update README. Only after real-parity.
 
-Until step 4, Grafana and the panel coexist and read the same TimescaleDB-backed data
-(Grafana directly, panel via the master API).
+Until step 4 both coexist, reading the same TimescaleDB data (Grafana directly, panel via API).
 
-## 9. Repository layout
+## 12. Repository layout
 
-The panel lives in the repo **temporarily**, isolated so it can be extracted later:
+Both apps live in the repo **temporarily**, isolated so they can be extracted later:
 
 ```
-apps/panel/            # SvelteKit + Bun app (self-contained)
-  package.json
-  biome.json
-  drizzle/             # panel DB schema + migrations (better-auth tables + panel data)
-  src/
-    hooks.server.ts    # better-auth session validation, admin-token injection
-    lib/server/
-      auth.ts          # better-auth instance (Drizzle adapter, email/password)
-      master.ts        # pulse-master REST client
+apps/
+  api/                 # Elysia + Bun — the service API
+    package.json
+    biome.json
+    drizzle/           # app DB schema + migrations (better-auth, orgs, webhooks, audit)
+    src/
+      index.ts         # Elysia app: swagger, cors, rate-limit, security headers
+      auth.ts          # better-auth instance (Drizzle adapter, org/admin/apiKey plugins)
       db.ts            # bun:sqlite + Drizzle
-    routes/
-      api/auth/        # better-auth handler mount
-      ...              # login, fleet, agent detail, add-server, alerts
-    routes/            # login, fleet, agent detail, add-server, alerts
+      master.ts        # per-org pulse-master REST client
+      routes/          # v1: servers, metrics, alerts, webhooks, auth mount
+      webhooks/        # subscription matching + signed dispatch + delivery log
+  panel/               # SvelteKit + Bun — the web UI (consumes apps/api)
+    package.json
+    biome.json
+    src/routes/        # login, fleet, agent detail, add-server, alerts, webhooks
 ```
 
-- Kept **out of the Cargo workspace** and Rust CI. Its own lint/test job.
-- `node_modules` and the panel's local SQLite file added to `.gitignore`.
+- Kept **out of the Cargo workspace** and Rust CI. Their own lint/test job.
+- `node_modules` and local SQLite files added to `.gitignore`.
 - Self-contained so a future `git subtree split` / move to another repo is clean.
 
-## 10. Configuration (panel env)
+## 13. Configuration (env)
 
 ```
-PULSE_MASTER_API=http://master:8080     # base URL of pulse-master REST API
-PULSE_ADMIN_TOKEN=...                    # server-side only; injected into master calls
-PANEL_DB_PATH=./panel.sqlite             # bun:sqlite file (better-auth + panel data)
-BETTER_AUTH_SECRET=...                    # better-auth signing secret
-BETTER_AUTH_URL=http://localhost:5173     # better-auth base URL (origin of the panel)
-PANEL_ALLOW_OPEN_REGISTRATION=false      # default: admin-gated (maps to disableSignUp)
+# apps/api
+PULSE_ADMIN_TOKEN=...                 # fallback/self-hosted single-org master token (server-only)
+PULSE_MASTER_API=http://master:8080   # fallback/self-hosted single-org master URL
+APP_DB_PATH=./pulse-panel.sqlite      # bun:sqlite (better-auth + orgs + webhooks + audit)
+BETTER_AUTH_SECRET=...                # better-auth signing secret
+BETTER_AUTH_URL=http://localhost:3000 # API origin
+CORS_ORIGINS=http://localhost:5173    # allow-list for the UI
+ALERT_INGEST_SECRET=...               # shared secret for POST /v1/internal/alerts
+# (SaaS/multi-tenant: master URL + token live per-org in the DB, not here)
+
+# apps/panel
+PUBLIC_API_URL=http://localhost:3000  # base URL of apps/api
 ```
 
-## 11. Security considerations
+## 14. Security considerations
 
-- Admin token confined to the SvelteKit server; never serialized to client payloads.
+- Admin/master tokens confined to the API server; never serialized to client payloads.
 - httpOnly + Secure + SameSite cookies and password hashing handled by better-auth.
-- Same-origin enforcement on state-changing routes; SvelteKit CSRF for form actions.
-- `exec` is a high-risk surface (arbitrary commands) — gate behind admin role and audit-log
-  every invocation (who, agent, command, timestamp) in the panel DB.
-- Never log passwords, session ids, the admin token, or command output containing secrets.
+- All input validated by TypeBox schemas; typed error envelope leaks no internals.
+- Rate limiting per IP and per API key; CORS allow-list; security headers globally.
+- Webhook payloads HMAC-signed per subscription; ingest endpoint requires `ALERT_INGEST_SECRET`.
+- `exec` is high-risk (arbitrary commands) — gate behind role, and audit-log every call
+  (who, org, agent, command, timestamp).
+- Tenant isolation (Model A): every query scoped by `org_id`; master resolved per org.
+- Never log passwords, session ids, tokens, API keys, or command output containing secrets.
 
-## 12. Open questions / to confirm before v2+
+## 15. Open questions / to confirm
 
-- Multi-user beyond a single admin: do we need viewer vs admin roles in v1, or is one role
-  enough until the panel is in real use? (better-auth's `admin` plugin adds roles when we
-  want them, so this can stay deferred without lock-in.)
-- Deployment shape: ship the panel as a container alongside `master` in
-  `docker-compose.yml`, or keep it dev-only until it stabilizes?
-- Downsampling contract for the range endpoint: fixed steps vs. server-chosen bucket based
-  on `to-from`.
+- **Selling model (blocking, §4):** Model A (hosted multi-tenant SaaS) or Model B (self-hosted
+  licensed)? Recommendation: build org-scoped from day one to serve both.
+- Roles needed at launch: owner/admin/viewer, or just admin until real use?
+- Deployment shape: ship API + panel as containers in `docker-compose.yml`, or dev-only first?
+- Downsampling contract for the range endpoint: fixed steps vs. server-chosen bucket.
 
-## 13. Proposed milestones
+## 16. Proposed milestones
 
-- **M0** — Scaffold `apps/panel` (SvelteKit + Bun + Biome), health check, master API client,
-  isolated CI job. (Awaiting go-ahead.)
-- **M1** — Auth: bootstrap admin, login/logout, session middleware, protected routes.
-- **M2** — Fleet overview + agent detail (live charts) + rename/remove/exec + alerts view.
-- **M3** — Add-server flow (command + register token).
-- **M4** — Range endpoint in Rust (§6.1) + time-range charts (Grafana-parity begins).
-- **M5+** — Grafana sunset per §8.
+- **M0** — Scaffold `apps/api` (Elysia + Bun + Biome + Swagger skeleton) and `apps/panel`
+  (SvelteKit), health checks, per-org master client, isolated CI job. (Awaiting go-ahead.)
+- **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
+  login/logout, session + org middleware, API keys.
+- **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
+  fully validated + documented in Swagger.
+- **M3** — Alerts + **webhooks**: subscriptions (org/server/user), signed dispatch, delivery
+  log, test-send.
+- **M4** — Add-server flow (command + register token).
+- **M5** — Range endpoint in Rust (§9.1) + time-range charts (Grafana parity begins).
+- **M6+** — Grafana sunset per §11; billing/metering hooks if SaaS.
 ```
