@@ -29,13 +29,16 @@ Two goals now drive this work:
 `pulse-master` is a lean telemetry engine (5.8 MB, zero external deps, zero `unsafe`).
 Adding accounts, sessions, RBAC, tenancy and webhooks to it would betray that design.
 
-Instead, all of that lives in a TypeScript layer split into two apps:
+Instead, all of that lives in a TypeScript layer under a single `cloud/` Bun workspace (§12),
+split into two apps + a shared package:
 
-- **`apps/api` — Elysia (Bun):** the product API and gateway. Owns auth, input validation,
-  Swagger docs, security middleware, webhook subscriptions + dispatch, and the only client
-  that talks to `pulse-master` (holding its admin token). This is the sellable, documented
+- **`cloud/apps/api` — Elysia (Bun):** the product API and gateway. Owns auth, input
+  validation, Swagger docs, security middleware, webhook subscriptions + dispatch, and the
+  only client that talks to `pulse-master` (holding its admin token). The sellable, documented
   surface.
-- **`apps/panel` — SvelteKit (Bun):** the web UI. Consumes `apps/api`; holds no secrets.
+- **`cloud/apps/panel` — SvelteKit (Bun):** the web UI. Consumes the API; holds no secrets.
+- **`cloud/packages/contracts`:** shared request/response types + typed SDK, so API and panel
+  never drift.
 
 ```
   Browser (SvelteKit UI)
@@ -165,8 +168,9 @@ responsiveness, **uPlot** for time-series charts.
 - **Global hooks/stores to avoid duplication:** shared logic lives in `src/lib/hooks/` and
   `src/lib/stores/` — e.g. `useAgents`, `usePolling`, `useAuth`, `useToast` — instead of
   being re-implemented per page. One source of truth for fetching, polling, and auth state.
-- **Typed API client:** a single generated/typed client in `src/lib/api/` (derived from the
-  Elysia types / OpenAPI) is the only way the UI talks to the backend. No scattered `fetch`.
+- **Typed API client:** the UI talks to the backend only through the shared client from
+  `cloud/packages/contracts` (re-exported via `src/lib/api/`), derived from the Elysia
+  types / OpenAPI. No scattered `fetch`, and the same types back both apps.
 - **Design tokens:** colors/spacing/typography as Tailwind theme tokens; dark mode via
   Tailwind; responsive by default (mobile-first utilities), verified at common breakpoints.
 - **Formatting/linting:** Biome; components and stores are unit-testable in isolation.
@@ -240,55 +244,78 @@ Until step 4 both coexist, reading the same TimescaleDB data (Grafana directly, 
 
 ## 12. Repository layout
 
-Both apps live in the repo **temporarily**, isolated so they can be extracted later:
+The Cargo workspace at the repo **root stays untouched** (it is its own build system). All
+TypeScript lives under a single top-level **`cloud/`** directory, which is **one Bun
+workspace** — kept isolated so the whole thing is one clean `git subtree split --prefix=cloud`
+away from becoming its own repo when a trigger appears (§ below).
 
 ```
-apps/
-  api/                 # Elysia + Bun — the service API
-    package.json
-    biome.json
-    drizzle/           # app DB schema + migrations (better-auth, orgs, webhooks, audit)
-    src/
-      index.ts         # Elysia app: swagger, cors, rate-limit, security headers
-      auth.ts          # better-auth instance (Drizzle adapter, org/admin/apiKey plugins)
-      db.ts            # bun:sqlite + Drizzle
-      master.ts        # per-org pulse-master REST client
-      routes/          # v1: servers, metrics, alerts, webhooks, auth mount
-      webhooks/        # subscription matching + signed dispatch + delivery log
-  panel/               # SvelteKit + Bun — the web UI (consumes apps/api)
-    package.json
-    biome.json
-    tailwind.config.ts # design tokens, dark mode, breakpoints
-    src/
-      lib/
-        api/           # single typed API client (from Elysia types / OpenAPI)
-        components/
-          ui/          # Bits UI + Tailwind primitives (Button, Card, Dialog, Table…)
-          <feature>/   # feature components (fleet, agent, alerts, webhooks)
-        hooks/         # global hooks — useAgents, usePolling, useAuth, useToast
-        stores/        # shared reactive state (one source of truth)
-      routes/          # login, fleet, agent detail, add-server, alerts, webhooks
+/  (repo root = Cargo workspace, unchanged)
+├── Cargo.toml, crates/, migrations/, docker/ ...
+└── cloud/                      # 1 Bun workspace · 1 extractable subtree
+    ├── package.json            # { "workspaces": ["apps/*", "packages/*"] }
+    ├── biome.json              # shared lint/format config for the whole TS side
+    ├── apps/
+    │   ├── api/                # Elysia + Bun — the service API
+    │   │   ├── package.json
+    │   │   ├── drizzle/        # app DB schema + migrations (better-auth, orgs, webhooks, audit)
+    │   │   └── src/
+    │   │       ├── index.ts    # Elysia app: swagger, cors, rate-limit, security headers
+    │   │       ├── auth.ts     # better-auth (Drizzle adapter, org/admin/apiKey plugins)
+    │   │       ├── db.ts       # bun:sqlite + Drizzle
+    │   │       ├── master.ts   # per-org pulse-master REST client
+    │   │       ├── routes/     # v1: servers, metrics, alerts, webhooks, auth mount
+    │   │       └── webhooks/   # subscription matching + signed dispatch + delivery log
+    │   └── panel/              # SvelteKit + Bun — the web UI (consumes apps/api)
+    │       ├── package.json
+    │       ├── tailwind.config.ts
+    │       └── src/
+    │           ├── lib/
+    │           │   ├── api/        # typed client re-exported from packages/contracts
+    │           │   ├── components/
+    │           │   │   ├── ui/     # Bits UI + Tailwind primitives (Button, Card, Dialog…)
+    │           │   │   └── <feature>/  # fleet, agent, alerts, webhooks
+    │           │   ├── hooks/      # global hooks — useAgents, usePolling, useAuth, useToast
+    │           │   └── stores/     # shared reactive state (one source of truth)
+    │           └── routes/         # login, fleet, agent detail, add-server, alerts, webhooks
+    └── packages/
+        └── contracts/         # shared types + typed SDK derived from Elysia/OpenAPI
+                               #   (consumed by both apps/api and apps/panel)
 ```
 
-- Kept **out of the Cargo workspace** and Rust CI. Their own lint/test job.
+- **Root stays Rust.** `cloud/` is out of the Cargo workspace and Rust CI; it has its own
+  Bun-based lint/test/build CI job, gated by a `cloud/**` path filter.
+- **Bun workspaces (not Turborepo yet).** Native workspace linking is enough for two apps +
+  one shared package. Turbo/Nx is deferred until the TS side grows to several packages **and**
+  CI task-caching pays off — and even then it would be scoped inside `cloud/`, never at root.
+- **`packages/contracts`** is the single source of truth for request/response types and the
+  typed API client, so `api` and `panel` can never drift.
 - `node_modules` and local SQLite files added to `.gitignore`.
-- Self-contained so a future `git subtree split` / move to another repo is clean.
+
+### When to split into a separate repo
+
+Extraction is cheap because everything is under `cloud/`. Natural triggers:
+
+- **Divergent license** — the repo is MIT today; if the SaaS goes closed-source, split.
+- **Separate team / access control / deploy cadence** for the cloud product.
+- **Open-sourcing the agent/master** while keeping the cloud private.
+
+Until one of those holds, the isolated monorepo is the more productive setup.
 
 ## 13. Configuration (env)
 
 ```
-# apps/api
-PULSE_ADMIN_TOKEN=...                 # fallback/self-hosted single-org master token (server-only)
-PULSE_MASTER_API=http://master:8080   # fallback/self-hosted single-org master URL
+# cloud/apps/api
 APP_DB_PATH=./pulse-panel.sqlite      # bun:sqlite (better-auth + orgs + webhooks + audit)
 BETTER_AUTH_SECRET=...                # better-auth signing secret
 BETTER_AUTH_URL=http://localhost:3000 # API origin
 CORS_ORIGINS=http://localhost:5173    # allow-list for the UI
 ALERT_INGEST_SECRET=...               # shared secret for POST /v1/internal/alerts
-# (SaaS/multi-tenant: master URL + token live per-org in the DB, not here)
+# Per-org master URL + admin token live in the DB (organizations table), not in env.
+# A single bootstrap master (URL + token) may be set here only for local dev.
 
-# apps/panel
-PUBLIC_API_URL=http://localhost:3000  # base URL of apps/api
+# cloud/apps/panel
+PUBLIC_API_URL=http://localhost:3000  # base URL of the API
 ```
 
 ## 14. Security considerations
@@ -314,10 +341,10 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of apps/api
 
 ## 16. Proposed milestones
 
-- **M0** — Scaffold `apps/api` (Elysia + Bun + Biome + Swagger skeleton) and `apps/panel`
-  (SvelteKit + Bits UI + Tailwind + typed API client + hooks/stores layout), health checks,
-  per-org master client, isolated CI job. Structure/DX conventions (§7) in place. (Awaiting
-  go-ahead.)
+- **M0** — Scaffold the `cloud/` Bun workspace: `apps/api` (Elysia + Biome + Swagger
+  skeleton), `apps/panel` (SvelteKit + Bits UI + Tailwind + hooks/stores layout), and
+  `packages/contracts` (shared types + typed client). Health checks, per-org master client,
+  isolated `cloud/**` CI job. Structure/DX conventions (§7) in place. (Awaiting go-ahead.)
 - **M1** — Auth + tenancy: better-auth (email/password, org plugin), bootstrap owner,
   login/logout, session + org middleware, API keys.
 - **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
