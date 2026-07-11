@@ -32,11 +32,12 @@
         <dd>{$session.data.user.email}</dd>
       </dl>
       <div class="mt-5 flex gap-3">
+        <Button onclick={() => goto('/fleet')}>Open fleet</Button>
         <Button variant="ghost" onclick={logout}>Sign out</Button>
       </div>
     </Card>
     <p class="text-sm text-slate-500">
-      Fleet, metrics and webhooks land in the next milestones (M2+).
+      Metrics history and webhooks land in the next milestones.
     </p>
   {:else}
     <p class="max-w-prose text-slate-600 dark:text-slate-400">

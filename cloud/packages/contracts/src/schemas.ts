@@ -19,16 +19,34 @@ export type HealthResponse = Static<typeof HealthResponse>;
 export const AgentStatus = Type.Union([Type.Literal('online'), Type.Literal('offline')]);
 export type AgentStatus = Static<typeof AgentStatus>;
 
-/** Fleet-overview row for a monitored server. */
-export const AgentSummary = Type.Object({
+/** Fleet-overview row for a monitored server (normalized from the master by the API). */
+export const FleetAgent = Type.Object({
   id: Type.String(),
   hostname: Type.String(),
-  status: AgentStatus,
-  cpuPct: Type.Number(),
-  memPct: Type.Number(),
+  status: Type.String(),
   version: Type.String(),
+  cpuPct: Type.Union([Type.Number(), Type.Null()]),
+  memPct: Type.Union([Type.Number(), Type.Null()]),
+  uptimeSecs: Type.Union([Type.Number(), Type.Null()]),
 });
-export type AgentSummary = Static<typeof AgentSummary>;
+export type FleetAgent = Static<typeof FleetAgent>;
+
+export const FleetOverview = Type.Object({
+  totalAgents: Type.Integer(),
+  online: Type.Integer(),
+  offline: Type.Integer(),
+  agents: Type.Array(FleetAgent),
+});
+export type FleetOverview = Static<typeof FleetOverview>;
+
+export const ExecResult = Type.Object({
+  agentId: Type.String(),
+  exitCode: Type.Integer(),
+  stdout: Type.String(),
+  stderr: Type.String(),
+  timedOut: Type.Boolean(),
+});
+export type ExecResult = Static<typeof ExecResult>;
 
 export const CreateOrganizationBody = Type.Object({
   name: Type.String({ minLength: 1, maxLength: 120 }),

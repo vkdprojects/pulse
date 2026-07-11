@@ -1,8 +1,8 @@
 # Admin Panel & Service API — Design Document
 
-> Status: **M0 + M1 done.** The `cloud/` workspace is green (lint + typecheck + 26 tests);
-> auth + multi-tenancy work end-to-end. This document captures the agreed architecture;
-> milestones (§16) track progress.
+> Status: **M0–M2 done.** The `cloud/` workspace is green (lint + typecheck + 32 tests);
+> auth + multi-tenancy + org-scoped fleet management work end-to-end. This document captures
+> the agreed architecture; milestones (§16) track progress.
 
 ## 1. Motivation
 
@@ -362,8 +362,14 @@ PUBLIC_API_URL=http://localhost:3000  # base URL of the API
   (sign-up creates an org, user becomes owner) / logout, session-aware home. Verified by
   integration tests against real Postgres (PGlite): sign-up → org(owner) → session, and the
   same flow end-to-end through the Elysia app. (API keys deferred — see §5.)
-- **M2** — Servers API + UI: fleet overview, agent detail (live charts), rename/remove/exec,
-  fully validated + documented in Swagger.
+- **M2 — done.** Servers API + UI. API: org-scoped `/v1/servers` (guard: auth → active org →
+  membership → provisioned master; 401/403/409), fleet overview normalized to a camelCase
+  contract, agent latest/metrics, rename/remove, and `exec` (viewer-blocked, audit-logged).
+  The admin token stays server-side; a per-org master client is built from the org record.
+  Web: fleet overview (polled via a shared `useFleet` hook, status/CPU/mem table) and agent
+  detail (stats + rename/remove + exec panel). Verified by integration tests with a stubbed
+  master (injected fetch): proxy uses the org token, guards return the right codes, exec
+  writes an audit row. (uPlot time-range charts deferred to M5.)
 - **M3** — Alerts + **webhooks**: subscriptions (org/server/user), signed dispatch, delivery
   log, test-send.
 - **M4** — Add-server flow (command + register token).

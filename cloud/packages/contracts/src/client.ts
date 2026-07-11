@@ -1,6 +1,6 @@
 import type { Static, TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import { ErrorResponse, HealthResponse, MeResponse } from './schemas';
+import { ErrorResponse, ExecResult, FleetOverview, HealthResponse, MeResponse } from './schemas';
 
 /** Minimal fetch signature — satisfied by the global `fetch` and by test mocks alike. */
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -54,11 +54,39 @@ export function createApiClient(options: ApiClientOptions) {
     return body;
   }
 
+  /** Mutations whose response shape is the master's raw JSON — sent, not schema-validated. */
+  async function mutate(path: string, init: RequestInit): Promise<unknown> {
+    const headers = { 'content-type': 'application/json', ...(await options.headers?.()) };
+    const res = await doFetch(`${base}${path}`, { credentials: 'include', ...init, headers });
+    const body: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (Value.Check(ErrorResponse, body)) {
+        throw new ApiError(res.status, body.error.code, body.error.message);
+      }
+      throw new ApiError(res.status, 'http_error', `Request to ${path} failed (${res.status})`);
+    }
+    return body;
+  }
+
   return {
     request,
     health: () => request('/health', HealthResponse),
     /** Current user + active org. Throws ApiError(401) when unauthenticated. */
     me: () => request('/v1/me', MeResponse),
+    /** Fleet overview for the active org. Throws ApiError(409) if no master is provisioned. */
+    servers: () => request('/v1/servers', FleetOverview),
+    renameServer: (id: string, name: string) =>
+      mutate(`/v1/servers/${encodeURIComponent(id)}/name`, {
+        method: 'PUT',
+        body: JSON.stringify({ name }),
+      }),
+    removeServer: (id: string) =>
+      mutate(`/v1/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    execServer: (id: string, command: string, timeoutSecs?: number) =>
+      request(`/v1/servers/${encodeURIComponent(id)}/exec`, ExecResult, {
+        method: 'POST',
+        body: JSON.stringify({ command, timeoutSecs }),
+      }),
   };
 }
 

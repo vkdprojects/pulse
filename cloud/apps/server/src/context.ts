@@ -1,4 +1,5 @@
 import type { Auth } from '@vixpi/auth';
+import type { FetchLike } from '@vixpi/contracts';
 import { type Db, member, organization } from '@vixpi/db';
 import { and, eq } from 'drizzle-orm';
 import { createMasterClient, type MasterClient } from './master';
@@ -58,11 +59,78 @@ export async function resolveOrg(
   };
 }
 
-/** Build a pulse-master client for an org, or null if it has not been provisioned yet. */
-export function masterForOrg(org: {
-  masterUrl: string | null;
-  masterAdminToken: string | null;
-}): MasterClient | null {
-  if (!org.masterUrl || !org.masterAdminToken) return null;
-  return createMasterClient({ baseUrl: org.masterUrl, adminToken: org.masterAdminToken });
+export interface ServerContextError {
+  status: number;
+  code: string;
+  message: string;
+}
+
+export interface ServerContext {
+  user: SessionUser;
+  org: OrgContext;
+  master: MasterClient;
+}
+
+/**
+ * Full guard for org-scoped, master-backed routes: authenticated → has an active org →
+ * is a member → that org has a provisioned master. Returns the resolved context (incl. a
+ * per-org master client) or a typed error the route turns into an HTTP status.
+ * `masterFetch` is injected in tests to stub the master without a live server.
+ */
+export async function resolveServerContext(
+  deps: { auth: Auth; db: Db },
+  headers: Headers,
+  masterFetch?: FetchLike,
+): Promise<ServerContext | { error: ServerContextError }> {
+  const auth = await resolveAuth(deps.auth, headers);
+  if (!auth) {
+    return { error: { status: 401, code: 'unauthorized', message: 'Not authenticated' } };
+  }
+  if (!auth.activeOrgId) {
+    return { error: { status: 403, code: 'no_active_org', message: 'No active organization' } };
+  }
+
+  const [org] = await deps.db
+    .select()
+    .from(organization)
+    .where(eq(organization.id, auth.activeOrgId))
+    .limit(1);
+  if (!org) {
+    return {
+      error: { status: 403, code: 'org_not_found', message: 'Active organization not found' },
+    };
+  }
+
+  const [mine] = await deps.db
+    .select()
+    .from(member)
+    .where(and(eq(member.organizationId, org.id), eq(member.userId, auth.user.id)))
+    .limit(1);
+  if (!mine) {
+    return { error: { status: 403, code: 'not_a_member', message: 'Not a member of this org' } };
+  }
+
+  if (!org.masterUrl || !org.masterAdminToken) {
+    return {
+      error: { status: 409, code: 'no_master', message: 'No master provisioned for this org' },
+    };
+  }
+
+  const master = createMasterClient({
+    baseUrl: org.masterUrl,
+    adminToken: org.masterAdminToken,
+    fetch: masterFetch,
+  });
+
+  return {
+    user: auth.user,
+    org: { id: org.id, name: org.name, slug: org.slug, role: mine.role, hasMaster: true },
+    master,
+  };
+}
+
+export function isContextError(
+  result: ServerContext | { error: ServerContextError },
+): result is { error: ServerContextError } {
+  return 'error' in result;
 }

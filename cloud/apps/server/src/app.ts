@@ -1,16 +1,19 @@
 import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
 import type { Auth } from '@vixpi/auth';
-import { HealthResponse } from '@vixpi/contracts';
+import { type FetchLike, HealthResponse } from '@vixpi/contracts';
 import type { Db } from '@vixpi/db';
 import { Elysia } from 'elysia';
 import { resolveAuth, resolveOrg } from './context';
+import { serversRoutes } from './routes/servers';
 
 export interface AppDeps {
   auth: Auth;
   db: Db;
   corsOrigins: string[];
   version?: string;
+  /** Injected in tests to stub the per-org pulse-master; defaults to real `fetch`. */
+  masterFetch?: FetchLike;
 }
 
 const SERVICE = 'vixpi-pulse-api';
@@ -72,6 +75,7 @@ export function createApp(deps: AppDeps) {
             { detail: { tags: ['auth'], summary: 'Current user and active organization' } },
           ),
       )
+      .use(serversRoutes(deps))
   );
 }
 
