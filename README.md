@@ -122,8 +122,8 @@ Install master or agents on remote servers without leaving the terminal.
  ◉ pulse Instalar Master via SSH
 
   Hosts from ~/.ssh/config:
-  › pulse-master-vm    ubuntu@192.168.68.66:22  (codeatlas)
-    pulse-agent-1-vm   ubuntu@192.168.68.68:22  (codeatlas)
+  › pulse-master-vm    ubuntu@192.168.68.66:22  (my-team)
+    pulse-agent-1-vm   ubuntu@192.168.68.68:22  (my-team)
     Manual...
 ```
 
