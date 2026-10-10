@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "╔══════════════════════════════════════╗"
-echo "║  Vixpi Pulse — E2E Production Test  ║"
+echo "║  Pulse — E2E Production Test  ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 

@@ -75,7 +75,7 @@ impl Config {
     }
 
     pub fn repo(&self) -> &str {
-        self.github_repo.as_deref().unwrap_or("gcnsolucoes/vixpi-pulse")
+        self.github_repo.as_deref().unwrap_or("vkdprojects/pulse")
     }
 
     pub fn add_master(&mut self, name: String, url: String, token: Option<String>) {

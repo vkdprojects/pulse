@@ -8,8 +8,8 @@ The `pulse` TUI is the recommended way to manage your entire fleet. It runs on y
 
 ```bash
 # macOS / Linux (no sudo, installs to ~/.local/bin)
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  INSTALL_COMPONENT=cli GITHUB_TOKEN=ghp_YOUR_TOKEN sh -
+curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | \
+  INSTALL_COMPONENT=cli sh -
 ```
 
 Then run:
@@ -88,7 +88,7 @@ Config file (`~/.config/pulse/config.toml`):
 
 ```toml
 github_token = "ghp_..."
-github_repo = "gcnsolucoes/vixpi-pulse"
+github_repo = "vkdprojects/pulse"
 current_context = "production"
 
 [[masters]]

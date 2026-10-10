@@ -11,8 +11,8 @@ The `pulse-agent` is the monitoring daemon that runs on each server. It collects
 ## Installation
 
 ```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=token-from-master GITHUB_TOKEN=ghp_xxx sudo sh -
+curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | \
+  PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=token-from-master sudo sh -
 ```
 
 > The token is displayed in the master installation output. Format: `sha256(ca.pem)::secret`
@@ -58,7 +58,7 @@ Run the same command on each server. Each agent receives a unique ID during regi
 
 ```bash
 curl -sfL .../install-pulse.sh | \
-  VERSION=v0.4.0 PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=xxx GITHUB_TOKEN=ghp_xxx sudo sh -
+  VERSION=v0.4.0 PULSE_MASTER=https://MASTER_IP:50051 PULSE_TOKEN=xxx sudo sh -
 ```
 
 ## Update

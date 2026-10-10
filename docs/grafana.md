@@ -12,7 +12,7 @@ Grafana available at **http://localhost:3000**
 
 - User: `admin`
 - Password: `pulse`
-- Dashboard pre-loaded: "Vixpi Pulse - Infrastructure"
+- Dashboard pre-loaded: "Pulse - Infrastructure"
 
 ## Manual Setup
 

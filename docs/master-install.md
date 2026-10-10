@@ -11,8 +11,8 @@ The `pulse-master` is the central server that receives metrics, persists data, m
 ## Installation
 
 ```bash
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  GITHUB_TOKEN=ghp_xxx sudo sh -
+curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | \
+  sudo sh -
 ```
 
 The script:
@@ -48,7 +48,7 @@ journalctl -u pulse-master -f
 ## Specific Version
 
 ```bash
-curl -sfL .../install-pulse.sh | VERSION=v0.4.0 GITHUB_TOKEN=ghp_xxx sudo sh -
+curl -sfL .../install-pulse.sh | VERSION=v0.4.0 sudo sh -
 ```
 
 ## Update

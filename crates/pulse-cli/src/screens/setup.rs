@@ -17,7 +17,7 @@ pub struct SetupScreen {
 
 impl SetupScreen {
     pub fn new() -> Self {
-        Self { token_input: String::new(), repo_input: "gcnsolucoes/vixpi-pulse".into(), focused: 0, done: false }
+        Self { token_input: String::new(), repo_input: "vkdprojects/pulse".into(), focused: 0, done: false }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {

@@ -2,11 +2,11 @@
 set -eu
 
 # ═══════════════════════════════════════════════════════════════════
-# Vixpi Pulse — Universal Installer
+# Pulse — Universal Installer
 #
-# Master: curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | sudo sh -
-# Agent:  curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | PULSE_MASTER=https://IP:50051 sudo sh -
-# CLI:    curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=cli sh -
+# Master: curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | sudo sh -
+# Agent:  curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | PULSE_MASTER=https://IP:50051 sudo sh -
+# CLI:    curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | INSTALL_COMPONENT=cli sh -
 #
 # Config via env vars:
 #   PULSE_MASTER      - Master URL (if set → installs agent, if unset → installs master)
@@ -16,7 +16,7 @@ set -eu
 #   INSTALL_COMPONENT - Force: "agent", "master", or "cli" (auto-detected if not set)
 # ═══════════════════════════════════════════════════════════════════
 
-GITHUB_REPO="${GITHUB_REPO:-gcnsolucoes/vixpi-pulse}"
+GITHUB_REPO="${GITHUB_REPO:-vkdprojects/pulse}"
 VERSION="${VERSION:-latest}"
 PULSE_MASTER="${PULSE_MASTER:-}"
 PULSE_TOKEN="${PULSE_TOKEN:-}"
@@ -47,7 +47,7 @@ warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
 err()   { printf "${RED}✗ %s${RESET}\n" "$1" >&2; exit 1; }
 header() {
     echo ""
-    printf "${BOLD}⚡ Vixpi Pulse — Installer${RESET}\n"
+    printf "${BOLD}⚡ Pulse — Installer${RESET}\n"
     echo ""
 }
 
@@ -199,7 +199,7 @@ install_master() {
     # Create systemd service
     cat > /etc/systemd/system/pulse-master.service <<EOF
 [Unit]
-Description=Vixpi Pulse Master
+Description=Pulse Master
 After=network-online.target
 Wants=network-online.target
 
@@ -292,7 +292,7 @@ EOF
     # Create systemd service
     cat > /etc/systemd/system/pulse-agent.service <<EOF
 [Unit]
-Description=Vixpi Pulse Agent
+Description=Pulse Agent
 After=network-online.target
 Wants=network-online.target
 

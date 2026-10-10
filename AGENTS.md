@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Vixpi Pulse is an ultra-lightweight infrastructure monitoring agent (1.9 MB binary, 2-5 MB RAM) that streams hardware telemetry over gRPC with mutual TLS to a central master server. The master persists metrics in TimescaleDB and exposes a REST API. This is a Rust workspace (monorepo) with 4 crates.
+Pulse is an ultra-lightweight infrastructure monitoring agent (1.9 MB binary, 2-5 MB RAM) that streams hardware telemetry over gRPC with mutual TLS to a central master server. The master persists metrics in TimescaleDB and exposes a REST API. This is a Rust workspace (monorepo) with 4 crates.
 
 ## Tech Stack
 

@@ -113,7 +113,7 @@ rm -rf /etc/pulse
 rm -rf /var/lib/pulse
 
 # Reinstall
-curl -sfL .../install-pulse.sh | GITHUB_TOKEN=ghp_xxx sudo sh -
+curl -sfL .../install-pulse.sh | sudo sh -
 ```
 
 ---

@@ -1,7 +1,7 @@
 {
-  "title": "Vixpi Pulse — Servidores",
-  "uid": "vixpi-pulse-v2",
-  "tags": ["vixpi", "pulse", "infrastructure"],
+  "title": "Pulse — Servidores",
+  "uid": "pulse-v2",
+  "tags": ["pulse", "infrastructure"],
   "timezone": "browser",
   "refresh": "30s",
   "schemaVersion": 39,

@@ -483,7 +483,7 @@ fn parse_utmp() -> Result<Vec<pulse_proto::pb::SshSession>> {
 
     let mut sessions = Vec::new();
 
-    for chunk in buf.chunks_exact(UTMP_SIZE) {
+    for chunk in buf.as_chunks::<UTMP_SIZE>().0 {
         let ut_type = i16::from_ne_bytes([chunk[0], chunk[1]]);
         if ut_type != UT_USER_PROCESS {
             continue;

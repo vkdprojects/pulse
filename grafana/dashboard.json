@@ -1,6 +1,6 @@
 {
-  "title": "Vixpi Pulse - Infrastructure",
-  "uid": "vixpi-pulse",
+  "title": "Pulse - Infrastructure",
+  "uid": "pulse",
   "timezone": "browser",
   "refresh": "10s",
   "time": { "from": "now-1h", "to": "now" },

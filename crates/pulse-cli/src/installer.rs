@@ -101,7 +101,7 @@ async fn do_install_master(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) -
     p(tx, "Configurando systemd...").await;
     ssh_exec(&opts, "sudo mkdir -p /var/lib/pulse /etc/pulse").await?;
 
-    let unit = "[Unit]\nDescription=Vixpi Pulse Master\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-master\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nEnvironment=PULSE_LISTEN=0.0.0.0:50051\nWorkingDirectory=/var/lib/pulse\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/var/lib/pulse /etc/pulse\n\n[Install]\nWantedBy=multi-user.target";
+    let unit = "[Unit]\nDescription=Pulse Master\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-master\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nEnvironment=PULSE_LISTEN=0.0.0.0:50051\nWorkingDirectory=/var/lib/pulse\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/var/lib/pulse /etc/pulse\n\n[Install]\nWantedBy=multi-user.target";
     ssh_exec(&opts, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-master.service > /dev/null")).await?;
     ssh_exec(&opts, "sudo systemctl daemon-reload && sudo systemctl enable --now pulse-master").await?;
     p(tx, "✓ pulse-master iniciado").await;
@@ -204,7 +204,7 @@ async fn do_install_agent(opts: InstallOpts, tx: &mpsc::Sender<InstallEvent>) ->
     ssh_exec(&opts, "sudo mkdir -p /etc/pulse").await?;
     ssh_exec(&opts, &format!("printf '{config}' | sudo tee /etc/pulse/agent.toml > /dev/null")).await?;
 
-    let unit = "[Unit]\nDescription=Vixpi Pulse Agent\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-agent /etc/pulse/agent.toml\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/etc/pulse /var/lib/pulse\n\n[Install]\nWantedBy=multi-user.target";
+    let unit = "[Unit]\nDescription=Pulse Agent\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/pulse-agent /etc/pulse/agent.toml\nRestart=always\nRestartSec=5\nEnvironment=RUST_LOG=info\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nReadWritePaths=/etc/pulse /var/lib/pulse\n\n[Install]\nWantedBy=multi-user.target";
     ssh_exec(&opts, &format!("echo '{unit}' | sudo tee /etc/systemd/system/pulse-agent.service > /dev/null")).await?;
     ssh_exec(&opts, "sudo systemctl daemon-reload && sudo systemctl enable --now pulse-agent").await?;
 

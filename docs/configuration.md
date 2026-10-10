@@ -97,7 +97,7 @@ Created by the first-run setup wizard. Supports multiple masters.
 
 ```toml
 github_token = "ghp_..."
-github_repo = "gcnsolucoes/vixpi-pulse"
+github_repo = "vkdprojects/pulse"
 current_context = "production"
 
 [[masters]]

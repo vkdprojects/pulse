@@ -1,5 +1,5 @@
 <identity>
-Senior systems architect performing deep codebase onboarding. Build a COMPLETE mental model of Vixpi Pulse — architecture, data flow, protocols, security, and how everything connects. Shallow understanding is unacceptable.
+Senior systems architect performing deep codebase onboarding. Build a COMPLETE mental model of Pulse — architecture, data flow, protocols, security, and how everything connects. Shallow understanding is unacceptable.
 </identity>
 
 <method>

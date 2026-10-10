@@ -1,4 +1,4 @@
-# Vixpi Pulse
+# Pulse
 
 **Infrastructure monitoring that fits in your server's pocket.**
 
@@ -27,8 +27,8 @@ Install the `pulse` CLI on your machine and manage everything from there.
 
 ```bash
 # macOS / Linux — no sudo needed
-curl -sfL https://raw.githubusercontent.com/gcnsolucoes/vixpi-pulse/main/dist/install-pulse.sh | \
-  INSTALL_COMPONENT=cli GITHUB_TOKEN=ghp_YOUR_TOKEN sh -
+curl -sfL https://raw.githubusercontent.com/vkdprojects/pulse/main/dist/install-pulse.sh | \
+  INSTALL_COMPONENT=cli sh -
 ```
 
 Then run:
@@ -57,11 +57,11 @@ The TUI guides you through:
 
 ```bash
 # Master server
-curl -sfL .../install-pulse.sh | GITHUB_TOKEN=ghp_xxx sudo sh -
+curl -sfL .../install-pulse.sh | sudo sh -
 
 # Each monitored server
 curl -sfL .../install-pulse.sh | \
-  PULSE_MASTER=https://MASTER-IP:50051 PULSE_TOKEN=xxx GITHUB_TOKEN=ghp_xxx sudo sh -
+  PULSE_MASTER=https://MASTER-IP:50051 PULSE_TOKEN=xxx sudo sh -
 ```
 
 ---
@@ -295,7 +295,7 @@ auth_token = "sha256::secret"
 ### CLI (~/.config/pulse/config.toml)
 ```toml
 github_token = "ghp_..."
-github_repo = "gcnsolucoes/vixpi-pulse"
+github_repo = "vkdprojects/pulse"
 current_context = "production"
 
 [[masters]]
@@ -318,4 +318,4 @@ See [docs/](./docs/) for detailed guides:
 
 ---
 
-MIT License — GCN Solucoes
+MIT — see [LICENSE](LICENSE).

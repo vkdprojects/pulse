@@ -1,6 +1,6 @@
 # Docker (Optional)
 
-> Docker is NOT required to use Vixpi Pulse. The standard installation uses a single binary with SQLite embedded.
+> Docker is NOT required to use Pulse. The standard installation uses a single binary with SQLite embedded.
 >
 > Docker Compose is useful for: quick demos, local development with Grafana, or environments that want TimescaleDB.
 

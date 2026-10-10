@@ -31,8 +31,8 @@ impl CaBundle {
             params.key_usages.push(KeyUsagePurpose::KeyCertSign);
             params.key_usages.push(KeyUsagePurpose::CrlSign);
             let mut dn = DistinguishedName::new();
-            dn.push(DnType::CommonName, "Vixpi Pulse CA");
-            dn.push(DnType::OrganizationName, "GCN Solucoes");
+            dn.push(DnType::CommonName, "Pulse CA");
+            dn.push(DnType::OrganizationName, "Pulse Contributors");
             params.distinguished_name = dn;
 
             let ca_cert_der = CertificateDer::from(pem_to_der(&ca_pem)?);
@@ -52,8 +52,8 @@ impl CaBundle {
         params.key_usages.push(KeyUsagePurpose::KeyCertSign);
         params.key_usages.push(KeyUsagePurpose::CrlSign);
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "Vixpi Pulse CA");
-        dn.push(DnType::OrganizationName, "GCN Solucoes");
+        dn.push(DnType::CommonName, "Pulse CA");
+        dn.push(DnType::OrganizationName, "Pulse Contributors");
         params.distinguished_name = dn;
 
         let key_pair = KeyPair::generate()?;

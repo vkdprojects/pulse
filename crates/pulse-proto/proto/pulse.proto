@@ -1,5 +1,5 @@
 syntax = "proto3";
-package vixpi.pulse.v1;
+package pulse.v1;
 
 service PulseAgent {
   rpc StreamMetrics(stream MetricsPayload) returns (MetricsAck);

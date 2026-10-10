@@ -85,7 +85,7 @@ async fn health() -> Json<Value> {
 
 async fn api_discovery() -> Json<Value> {
     Json(json!({
-        "name": "Vixpi Pulse",
+        "name": "Pulse",
         "version": option_env!("PULSE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
         "endpoints": {
             "health": "GET /health",

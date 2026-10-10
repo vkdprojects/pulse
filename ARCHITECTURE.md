@@ -1,4 +1,4 @@
-# Vixpi Pulse — Análise Técnica e Validação Arquitetural
+# Pulse — Análise Técnica e Validação Arquitetural
 
 > Documento gerado a partir de pesquisa ativa com fontes verificáveis.
 > Data: 2026-06-02
@@ -125,7 +125,7 @@ strip = true         # Remove símbolos
 
 ```protobuf
 syntax = "proto3";
-package vixpi.pulse.v1;
+package pulse.v1;
 
 // --- Serviços ---
 
@@ -310,7 +310,7 @@ A 10s de intervalo, um agente gera ~1 KB/min de tráfego de métricas.
 
 ## 6. Stack Final Recomendada
 
-### Agente (`vixpi-pulse`)
+### Agente (`pulse`)
 
 | Componente | Escolha | Motivo |
 |---|---|---|
@@ -321,7 +321,7 @@ A 10s de intervalo, um agente gera ~1 KB/min de tráfego de métricas.
 | Compilação | musl static + fat-LTO + opt-z + strip | 8-15 MB binário, zero runtime overhead |
 | Logging | Minimal (sem tracing-subscriber) | Economiza 6+ MB |
 
-### Master (`vixpi-master`)
+### Master (`pulse-master`)
 
 | Componente | Escolha | Motivo |
 |---|---|---|

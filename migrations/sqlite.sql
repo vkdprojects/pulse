@@ -1,4 +1,4 @@
--- Vixpi Pulse — SQLite Schema (embedded mode)
+-- Pulse — SQLite Schema (embedded mode)
 -- Runs on master boot when DATABASE_URL is absent.
 
 PRAGMA journal_mode=WAL;

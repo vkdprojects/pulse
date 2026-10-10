@@ -1,6 +1,6 @@
 # Filosofia — Caber no Bolso do Servidor
 
-O Vixpi Pulse existe com uma tese: monitoring não pode custar mais que o serviço que monitora.
+O Pulse existe com uma tese: monitoring não pode custar mais que o serviço que monitora.
 
 ## Princípios
 
