@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Tailwind 4 is CSS-first: design tokens live here as @theme, dark mode via the `dark` class. */
+@custom-variant dark (&:where(.dark, .dark *));

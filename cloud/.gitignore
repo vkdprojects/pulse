@@ -1,0 +1,23 @@
+# deps
+node_modules/
+
+# builds
+dist/
+build/
+.svelte-kit/
+.output/
+
+# local databases
+*.sqlite
+*.sqlite-*
+*.db
+
+# env
+.env
+.env.*
+!.env.example
+
+# misc
+*.log
+.DS_Store
+coverage/
